@@ -1,0 +1,22 @@
+# Dependencies and build output
+node_modules/
+dist/
+build/
+.vite/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Environment and local-only files
+.env
+.env.*
+!.env.example
+*.log
+
+# Editor and operating-system files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
