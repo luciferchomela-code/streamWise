@@ -16,7 +16,6 @@ export const loginUser = asyncHandler(async (req, res) => {
   // exchange authorization code for google tokens
   const googleRes = await oauth2client.getToken(code)
   const tokens = googleRes.tokens
-  oauth2client.setCredentials(tokens)
 
   // fetch user info from google
   const userRes = await axios.get(

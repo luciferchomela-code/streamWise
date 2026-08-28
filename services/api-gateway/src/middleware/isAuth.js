@@ -27,7 +27,14 @@ export const isAuth = async (req,res,next)=>{
             })
         }
 
-        req.user = decodedValue.user
+        const user = await User.findById(decodedValue.user._id)
+        if(!user) {
+            return res.status(401).json({
+                message:"user not found"
+            })
+        }
+
+        req.user = user
 
         next()
 
