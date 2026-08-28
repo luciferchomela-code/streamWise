@@ -1,8 +1,51 @@
 import User from "../../../shared/models/user.model.js"
 import jwt from "jsonwebtoken"
+import bcrypt from "bcryptjs"
 import asyncHandler from "../middlewares/tryCatch.js"
 import axios from "axios"
 import { oauth2client } from "../../../shared/config/googleConfig.js"
+
+const accessTokenSecret = () => {
+  if (!process.env.JWT_SEC) {
+    throw new Error("JWT_SEC is required")
+  }
+
+  return process.env.JWT_SEC
+}
+
+const refreshTokenSecret = () => process.env.JWT_REFRESH_SEC || accessTokenSecret()
+
+const tokenPayload = (user, type) => ({
+  userId: user._id.toString(),
+  email: user.email,
+  type,
+})
+
+const issueTokens = (user) => ({
+  accessToken: jwt.sign(tokenPayload(user, "access"), accessTokenSecret(), {
+    expiresIn: "15m",
+  }),
+  refreshToken: jwt.sign(tokenPayload(user, "refresh"), refreshTokenSecret(), {
+    expiresIn: "7d",
+  }),
+})
+
+const findUserForRefreshToken = async (refreshToken) => {
+  const decoded = jwt.verify(refreshToken, refreshTokenSecret())
+
+  if (decoded.type !== "refresh" || !decoded.userId) {
+    return null
+  }
+
+  const user = await User.findById(decoded.userId).select("+refreshTokenHash")
+
+  if (!user?.refreshTokenHash) {
+    return null
+  }
+
+  const tokenMatches = await bcrypt.compare(refreshToken, user.refreshTokenHash)
+  return tokenMatches ? user : null
+}
 
 export const loginUser = asyncHandler(async (req, res) => {
   const { code } = req.body
@@ -17,9 +60,19 @@ export const loginUser = asyncHandler(async (req, res) => {
   const googleRes = await oauth2client.getToken(code)
   const tokens = googleRes.tokens
 
+  if (!tokens.access_token) {
+    return res.status(401).json({ message: "Google authentication failed" })
+  }
+
   // fetch user info from google
   const userRes = await axios.get(
-    `https://www.googleapis.com/oauth2/v1/userinfo?alt=json&access_token=${googleRes.tokens.access_token}`
+    "https://www.googleapis.com/oauth2/v1/userinfo",
+    {
+      params: {
+        alt: "json",
+        access_token: tokens.access_token,
+      },
+    }
   )
 
   const { email, name, picture } = userRes.data
@@ -34,15 +87,9 @@ export const loginUser = asyncHandler(async (req, res) => {
     })
   }
 
-  const accessToken = jwt.sign({ user }, process.env.JWT_SEC, {
-    expiresIn: "15m"
-  })
+  const { accessToken, refreshToken } = issueTokens(user)
 
-  const refreshToken = jwt.sign({ user }, process.env.JWT_REFRESH_SEC || process.env.JWT_SEC, {
-    expiresIn: "7d"
-  })
-
-  user.refreshToken = refreshToken
+  user.refreshTokenHash = await bcrypt.hash(refreshToken, 12)
   await user.save()
 
   res.status(200).json({
@@ -54,8 +101,13 @@ export const loginUser = asyncHandler(async (req, res) => {
 })
 
 export const myProfile = asyncHandler(async (req, res) => {
-  const user = req.user
-  res.json(user)
+  const user = await User.findById(req.auth.userId)
+
+  if (!user) {
+    return res.status(404).json({ message: "User not found" })
+  }
+
+  res.status(200).json({ user })
 })
 
 export const refreshAccessToken = asyncHandler(async (req, res) => {
@@ -66,24 +118,20 @@ export const refreshAccessToken = asyncHandler(async (req, res) => {
   }
 
   try {
-    const decodedValue = jwt.verify(refreshToken, process.env.JWT_REFRESH_SEC || process.env.JWT_SEC)
+    const dbUser = await findUserForRefreshToken(refreshToken)
 
-    if (!decodedValue || !decodedValue.user) {
-      return res.status(401).json({ message: "Invalid refresh token" })
-    }
-
-    const dbUser = await User.findById(decodedValue.user._id)
-    if (!dbUser || dbUser.refreshToken !== refreshToken) {
+    if (!dbUser) {
       return res.status(401).json({ message: "Refresh token is invalid or has been revoked" })
     }
 
-    const newAccessToken = jwt.sign({ user: dbUser }, process.env.JWT_SEC, {
-      expiresIn: "15m"
-    })
+    const { accessToken, refreshToken: nextRefreshToken } = issueTokens(dbUser)
+    dbUser.refreshTokenHash = await bcrypt.hash(nextRefreshToken, 12)
+    await dbUser.save()
 
     res.status(200).json({
-      message: "Access token refreshed successfully",
-      accessToken: newAccessToken
+      message: "Tokens refreshed successfully",
+      accessToken,
+      refreshToken: nextRefreshToken,
     })
   } catch (error) {
     return res.status(401).json({ message: "Refresh token expired or invalid" })
@@ -95,12 +143,13 @@ export const logoutUser = asyncHandler(async (req, res) => {
   //cokkie system will be implemented later
   if (refreshToken) {
     try {
-      const decodedValue = jwt.verify(refreshToken, process.env.JWT_REFRESH_SEC || process.env.JWT_SEC)
-      if (decodedValue && decodedValue.user) {
-        await User.findByIdAndUpdate(decodedValue.user._id, { $unset: { refreshToken: "" } })
+      const user = await findUserForRefreshToken(refreshToken)
+      if (user) {
+        user.refreshTokenHash = null
+        await user.save()
       }
-    } catch (error) {
-      console.log(error)
+    } catch {
+      // Logout is idempotent: an expired or invalid token is already unusable.
     }
   }
 

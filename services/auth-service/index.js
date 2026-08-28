@@ -1,6 +1,5 @@
 import express from "express";
 import dotenv from "dotenv";
-import cors from "cors";
 import connectDB from "../shared/config/db.js";
 import authRoute from "./src/routes/auth.route.js";
 
@@ -8,7 +7,6 @@ dotenv.config();
 
 const app = express();
 
-app.use(cors());
 app.use(express.json());
 
 app.get("/health", (req, res) => {
@@ -17,10 +15,26 @@ app.get("/health", (req, res) => {
 
 app.use("/api/auth", authRoute);
 
-const PORT = process.env.PORT || 5000;
+app.use((error, req, res, next) => {
+    console.error(error);
 
-connectDB();
+    if (res.headersSent) {
+        return next(error);
+    }
 
-app.listen(PORT, () => {
-    console.log(`Auth service running on port ${PORT}`);
+    res.status(error.statusCode || 500).json({
+        message: error.message || "Internal server error",
+    });
 });
+
+const PORT = process.env.PORT || 5001;
+
+const start = async () => {
+    await connectDB();
+
+    app.listen(PORT, () => {
+        console.log(`Auth service running on port ${PORT}`);
+    });
+};
+
+start();

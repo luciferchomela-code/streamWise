@@ -4,7 +4,7 @@ const { Schema } = mongoose;
 
 const videoSchema = new Schema(
   {
-    ownerId: {
+    channelId: {
       type: Schema.Types.ObjectId,
       ref: "User",
       required: true,
@@ -25,11 +25,6 @@ const videoSchema = new Schema(
     tags: {
       type: [String],
       default: [],
-      index: true,
-    },
-    category: {
-      type: String,
-      required: true,
       index: true,
     },
     thumbnailUrl: {

@@ -1,5 +1,4 @@
 import jwt from "jsonwebtoken"
-import User from "../../../shared/models/user.model.js"
 
 export const isAuth = async (req,res,next)=>{
     try{
@@ -21,20 +20,16 @@ export const isAuth = async (req,res,next)=>{
 
         const decodedValue = jwt.verify(token,process.env.JWT_SEC)
 
-        if(!decodedValue || !decodedValue.user){
+        if(!decodedValue || decodedValue.type !== "access" || !decodedValue.userId){
             return res.status(401).json({
                 message:"invalid token"
             })
         }
 
-        const user = await User.findById(decodedValue.user._id)
-        if(!user) {
-            return res.status(401).json({
-                message:"user not found"
-            })
+        req.auth = {
+            userId: decodedValue.userId,
+            email: decodedValue.email,
         }
-
-        req.user = user
 
         next()
 
@@ -44,8 +39,8 @@ export const isAuth = async (req,res,next)=>{
                 message: "Access token expired"
             })
         }
-        res.status(500).json({
-            message:"please login - jwt error"
+        res.status(401).json({
+            message:"invalid access token"
         })
     }
 }

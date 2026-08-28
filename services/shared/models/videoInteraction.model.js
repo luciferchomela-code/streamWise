@@ -37,10 +37,6 @@ const videoInteractionSchema = new Schema(
       min: 0,
       max: 100,
     },
-    completed: {
-      type: Boolean,
-      default: false,
-    },
     lastViewedAt: {
       type: Date,
       default: null,
