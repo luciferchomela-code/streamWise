@@ -1,12 +1,11 @@
 import mongoose from "mongoose";
-
 const { Schema } = mongoose;
 
 const videoSchema = new Schema(
   {
     channelId: {
       type: Schema.Types.ObjectId,
-      ref: "User",
+      ref: "Channel",
       required: true,
       index: true,
     },
