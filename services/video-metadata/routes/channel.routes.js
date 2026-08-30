@@ -14,7 +14,7 @@ const router = express.Router();
 // Public routes
 router.get("/:channelId", getChannel);
 
-//// Protected routes (Require Auth)
+//// Protected routes
 router.post("/", requireGatewayIdentity, createChannel);
 router.put("/", requireGatewayIdentity, updateChannel);
 router.delete("/", requireGatewayIdentity, deleteChannel);

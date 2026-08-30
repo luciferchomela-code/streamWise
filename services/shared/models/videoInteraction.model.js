@@ -45,11 +45,15 @@ const videoInteractionSchema = new Schema(
   { timestamps: true }
 );
 
-// Only one record for each user-video pair.
 videoInteractionSchema.index({ userId: 1, videoId: 1 }, { unique: true });
 
-// Fast watch-history query.
 videoInteractionSchema.index({ userId: 1, lastViewedAt: -1 });
+
+videoInteractionSchema.index({ userId: 1, liked: 1, updatedAt: -1 });
+
+videoInteractionSchema.index({ userId: 1, disliked: 1, updatedAt: -1 });
+
+VideoInteraction.find({ userId }).sort({ lastViewedAt: -1 });
 
 const VideoInteraction = mongoose.model(
   "VideoInteraction",

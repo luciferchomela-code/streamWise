@@ -71,8 +71,22 @@ const videoSchema = new Schema(
 );
 
 videoSchema.index({ visibility: 1, status: 1, createdAt: -1 });
+
+videoSchema.index({
+  channelId: 1,
+  visibility: 1,
+  status: 1,
+  createdAt: -1,
+});
+
 videoSchema.index({ title: "text", description: "text", tags: "text" });
 
+videoSchema.index({
+  category: 1,
+  visibility: 1,
+  status: 1,
+  createdAt: -1,
+});
 const Video = mongoose.model("Video", videoSchema);
 
 export default Video;
