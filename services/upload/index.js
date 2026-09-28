@@ -6,9 +6,7 @@ dotenv.config();
 
 const app = express();
 
-// Base64 media is supported only as a small-development convenience.
-// Production video uploads should use multipart or direct signed Cloudinary uploads.
-app.use(express.json({ limit: "50mb" }));
+app.use(express.json());
 
 app.get("/health", (req, res) => {
   res.status(200).json({ status: "ok", service: "video-upload" });

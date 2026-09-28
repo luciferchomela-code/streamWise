@@ -7,16 +7,17 @@ import {
   latestVideos,
   getVideoById,
   searchVideos,
-} from "../controllers/video.controller.js";
-import { requireGatewayIdentity } from "../middlewares/auth.middleware.js";
+} from "../controllers/video.controllers.js";
+import { requireGatewayIdentity } from "../middlewares/requireGatewayIdentity.js";
+import { optionalGatewayIdentity } from "../middlewares/optionalGatewayIdentity.js";
 
 const router = express.Router();
 
-router.get("/trending", trendingVideos);
-router.get("/latest", latestVideos);
-router.get("/search", searchVideos);
-router.get("/channel/:channelId", channelVideos);
-router.get("/:videoId", getVideoById);
+router.get("/trending", optionalGatewayIdentity, trendingVideos);
+router.get("/latest", optionalGatewayIdentity, latestVideos);
+router.get("/search", optionalGatewayIdentity, searchVideos);
+router.get("/channel/:channelId", optionalGatewayIdentity, channelVideos);
+router.get("/:videoId", optionalGatewayIdentity, getVideoById);
 
 router.post("/draft", requireGatewayIdentity, createDraft);
 router.delete("/:videoId", requireGatewayIdentity, deleteVideo);

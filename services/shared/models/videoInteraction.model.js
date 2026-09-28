@@ -53,7 +53,7 @@ videoInteractionSchema.index({ userId: 1, liked: 1, updatedAt: -1 });
 
 videoInteractionSchema.index({ userId: 1, disliked: 1, updatedAt: -1 });
 
-VideoInteraction.find({ userId }).sort({ lastViewedAt: -1 });
+
 
 const VideoInteraction = mongoose.model(
   "VideoInteraction",

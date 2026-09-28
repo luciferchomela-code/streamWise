@@ -19,7 +19,7 @@ export const createDraft = asyncHandler(async (req, res) => {
     title,
     description,
     thumbnailUrl,
-    status: "draft",
+    status: "published",
     visibility: visibility || "public",
   });
 
@@ -42,16 +42,12 @@ export const channelVideos = asyncHandler(async (req, res) => {
 
   const queryFilter = {
     channelId: channel._id,
-    visibility: "public",
-    status: { $in: ["ready", "published"] },
   };
 
-  const videos = await Video.find(queryFilter)
-    .sort({ createdAt: -1 })
-    .skip(skip)
-    .limit(limit);
-
-  const totalVideos = await Video.countDocuments(queryFilter);
+  const [videos, totalVideos] = await Promise.all([
+    Video.find(queryFilter).sort({ createdAt: -1 }).skip(skip).limit(limit),
+    Video.countDocuments(queryFilter),
+  ]);
 
   res.status(200).json({
     success: true,
@@ -99,12 +95,10 @@ export const trendingVideos = asyncHandler(async (req, res) => {
     status: { $in: ["ready", "published"] },
   };
 
-  const videos = await Video.find(queryFilter)
-    .sort({ views: -1 })
-    .skip(skip)
-    .limit(limit);
-
-  const totalVideos = await Video.countDocuments(queryFilter);
+  const [videos, totalVideos] = await Promise.all([
+    Video.find(queryFilter).sort({ views: -1 }).skip(skip).limit(limit),
+    Video.countDocuments(queryFilter),
+  ]);
 
   res.status(200).json({
     success: true,
@@ -124,12 +118,10 @@ export const latestVideos = asyncHandler(async (req, res) => {
     status: { $in: ["ready", "published"] },
   };
 
-  const videos = await Video.find(queryFilter)
-    .sort({ createdAt: -1 })
-    .skip(skip)
-    .limit(limit);
-
-  const totalVideos = await Video.countDocuments(queryFilter);
+  const [videos, totalVideos] = await Promise.all([
+    Video.find(queryFilter).sort({ createdAt: -1 }).skip(skip).limit(limit),
+    Video.countDocuments(queryFilter),
+  ]);
 
   res.status(200).json({
     success: true,
@@ -141,7 +133,7 @@ export const latestVideos = asyncHandler(async (req, res) => {
 
 export const getVideoById = asyncHandler(async (req, res) => {
   const { videoId } = req.params;
-  const userId = req.get("x-user-id");
+  const userId = req.auth ? req.auth.userId : null;
 
   const video = await Video.findById(videoId).populate("channelId");
   if (!video) {
@@ -177,20 +169,19 @@ export const searchVideos = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "Query is required." });
   }
 
-  const safeQuery = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
   const queryFilter = {
-    title: { $regex: safeQuery, $options: "i" },
+    $text: { $search: q },
     visibility: "public",
     status: { $in: ["ready", "published"] },
   };
 
-  const videos = await Video.find(queryFilter)
-    .sort({ views: -1 })
-    .skip(skip)
-    .limit(limit);
-
-  const totalVideos = await Video.countDocuments(queryFilter);
+  const [videos, totalVideos] = await Promise.all([
+    Video.find(queryFilter, { score: { $meta: "textScore" } })
+      .sort({ score: { $meta: "textScore" } })
+      .skip(skip)
+      .limit(limit),
+    Video.countDocuments(queryFilter),
+  ]);
 
   res.status(200).json({
     success: true,

@@ -7,37 +7,37 @@ export const toggleLike = asyncHandler(async (req, res) => {
   const { videoId } = req.params;
   const userId = req.auth.userId;
 
-  const video = await Video.findById(videoId);
-  if (!video) {
-    return res.status(404).json({ message: "Video not found." });
-  }
-
-  let interaction = await VideoInteraction.findOne({ userId, videoId });
+  const previousInteraction = await VideoInteraction.findOne({ userId, videoId });
   let videoInc = {};
   let message = "";
+  
+  let newLikedState = true;
+  let newDislikedState = false;
 
-  if (!interaction) {
-    interaction = new VideoInteraction({ userId, videoId, liked: true, disliked: false });
+  if (!previousInteraction) {
     videoInc.likes = 1;
     message = "Video liked successfully";
-  } else if (interaction.liked) {
-    interaction.liked = false;
+  } else if (previousInteraction.liked) {
+    newLikedState = false;
     videoInc.likes = -1;
     message = "Like removed successfully";
   } else {
-    if (interaction.disliked) {
-      interaction.disliked = false;
+    if (previousInteraction.disliked) {
       videoInc.dislikes = -1;
     }
-    interaction.liked = true;
     videoInc.likes = 1;
     message = "Video liked successfully";
   }
 
-  await interaction.save();
+  const interaction = await VideoInteraction.findOneAndUpdate(
+    { userId, videoId },
+    { $set: { liked: newLikedState, disliked: newDislikedState } },
+    { new: true, upsert: true }
+  );
 
-  // Only query the Video collection if there is a count change
-  let updatedVideo = video;
+  let updatedVideo = await Video.findById(videoId);
+  if (!updatedVideo) return res.status(404).json({ message: "Video not found." });
+
   if (Object.keys(videoInc).length > 0) {
     updatedVideo = await Video.findByIdAndUpdate(
       videoId,
@@ -49,8 +49,8 @@ export const toggleLike = asyncHandler(async (req, res) => {
   res.status(200).json({
     success: true,
     message,
-    likes: Math.max(0, updatedVideo.likes),
-    dislikes: Math.max(0, updatedVideo.dislikes),
+    likes: Math.max(0, updatedVideo.likes || 0),
+    dislikes: Math.max(0, updatedVideo.dislikes || 0),
     interaction,
   });
 });
@@ -59,36 +59,37 @@ export const toggleDislike = asyncHandler(async (req, res) => {
   const { videoId } = req.params;
   const userId = req.auth.userId;
 
-  const video = await Video.findById(videoId);
-  if (!video) {
-    return res.status(404).json({ message: "Video not found." });
-  }
-
-  let interaction = await VideoInteraction.findOne({ userId, videoId });
+  const previousInteraction = await VideoInteraction.findOne({ userId, videoId });
   let videoInc = {};
   let message = "";
+  
+  let newLikedState = false;
+  let newDislikedState = true;
 
-  if (!interaction) {
-    interaction = new VideoInteraction({ userId, videoId, liked: false, disliked: true });
+  if (!previousInteraction) {
     videoInc.dislikes = 1;
     message = "Video disliked successfully";
-  } else if (interaction.disliked) {
-    interaction.disliked = false;
+  } else if (previousInteraction.disliked) {
+    newDislikedState = false;
     videoInc.dislikes = -1;
     message = "Dislike removed successfully";
   } else {
-    if (interaction.liked) {
-      interaction.liked = false;
+    if (previousInteraction.liked) {
       videoInc.likes = -1;
     }
-    interaction.disliked = true;
     videoInc.dislikes = 1;
     message = "Video disliked successfully";
   }
 
-  await interaction.save();
+  const interaction = await VideoInteraction.findOneAndUpdate(
+    { userId, videoId },
+    { $set: { liked: newLikedState, disliked: newDislikedState } },
+    { new: true, upsert: true }
+  );
 
-  let updatedVideo = video;
+  let updatedVideo = await Video.findById(videoId);
+  if (!updatedVideo) return res.status(404).json({ message: "Video not found." });
+
   if (Object.keys(videoInc).length > 0) {
     updatedVideo = await Video.findByIdAndUpdate(
       videoId,
@@ -100,58 +101,57 @@ export const toggleDislike = asyncHandler(async (req, res) => {
   res.status(200).json({
     success: true,
     message,
-    likes: Math.max(0, updatedVideo.likes),
-    dislikes: Math.max(0, updatedVideo.dislikes),
+    likes: Math.max(0, updatedVideo.likes || 0),
+    dislikes: Math.max(0, updatedVideo.dislikes || 0),
     interaction,
   });
 });
 
 export const incViewCount = asyncHandler(async (req, res) => {
   const { videoId } = req.params;
-  const userId = req.auth.userId;
-  const { watchPercentage = 0 } = req.body; 
-
-  if (watchPercentage < 30) {
-    return res.status(400).json({
-      success: false,
-      message: "Video must be watched for at least 30% to count as a view.",
-    });
-  }
+  const userId = req.auth ? req.auth.userId : null;
+  const { watchPercentage = 30 } = req.body; 
 
   const video = await Video.findById(videoId);
   if (!video) {
     return res.status(404).json({ message: "Video not found." });
   }
 
-  let interaction = await VideoInteraction.findOne({ userId, videoId });
-  const now = new Date();
-  let shouldIncrementGlobalViews = false;
-
-  // View Cooldown (1 hour) to prevent view-botting by the same user
-  const ONE_HOUR_MS = 60 * 60 * 1000; 
-
-  if (!interaction) {
-    shouldIncrementGlobalViews = true;
-    interaction = await VideoInteraction.create({
-      userId,
-      videoId,
-      viewCount: 1,
-      watchPercentage,
-      lastViewedAt: now,
-    });
-  } else {
-    interaction.watchPercentage = Math.max(interaction.watchPercentage, watchPercentage);
-    
-    if (now - interaction.lastViewedAt > ONE_HOUR_MS) {
-      shouldIncrementGlobalViews = true;
-      interaction.viewCount += 1;
-      interaction.lastViewedAt = now;
-    }
-    await interaction.save();
-  }
-
   let updatedVideo = video;
-  if (shouldIncrementGlobalViews) {
+  if (userId) {
+    let interaction = await VideoInteraction.findOne({ userId, videoId });
+    const now = new Date();
+    let shouldIncrementGlobalViews = false;
+    const ONE_HOUR_MS = 60 * 60 * 1000; 
+
+    if (!interaction) {
+      shouldIncrementGlobalViews = true;
+      interaction = await VideoInteraction.create({
+        userId,
+        videoId,
+        viewCount: 1,
+        watchPercentage,
+        lastViewedAt: now,
+      });
+    } else {
+      interaction.watchPercentage = Math.max(interaction.watchPercentage, watchPercentage);
+      if (now - interaction.lastViewedAt > ONE_HOUR_MS) {
+        shouldIncrementGlobalViews = true;
+        interaction.viewCount += 1;
+        interaction.lastViewedAt = now;
+      }
+      await interaction.save();
+    }
+
+    if (shouldIncrementGlobalViews) {
+      updatedVideo = await Video.findByIdAndUpdate(
+        videoId,
+        { $inc: { views: 1 } },
+        { new: true }
+      );
+    }
+  } else {
+    // Guest view
     updatedVideo = await Video.findByIdAndUpdate(
       videoId,
       { $inc: { views: 1 } },
@@ -161,9 +161,17 @@ export const incViewCount = asyncHandler(async (req, res) => {
 
   res.status(200).json({
     success: true,
-    message: shouldIncrementGlobalViews ? "View count incremented" : "Watch percentage updated",
     views: updatedVideo.views,
   });
+});
+
+export const getComments = asyncHandler(async (req, res) => {
+  const { videoId } = req.params;
+  const comments = await Comment.find({ videoId })
+    .populate("authorId", "name image")
+    .sort({ createdAt: -1 });
+
+  res.status(200).json({ success: true, comments });
 });
 
 export const addComment = asyncHandler(async (req, res) => {
@@ -175,16 +183,6 @@ export const addComment = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "Comment body is required." });
   }
 
-  if (parentCommentId) {
-    const parentComment = await Comment.findById(parentCommentId);
-    if (!parentComment) {
-      return res.status(404).json({ message: "Parent comment not found." });
-    }
-    if (parentComment.parentCommentId) {
-      return res.status(400).json({ message: "Nested replies beyond level 1 are not allowed." });
-    }
-  }
-
   const comment = await Comment.create({
     videoId,
     authorId: userId,
@@ -192,7 +190,9 @@ export const addComment = asyncHandler(async (req, res) => {
     parentCommentId,
   });
 
-  res.status(201).json({ success: true, comment });
+  const populatedComment = await Comment.findById(comment._id).populate("authorId", "name image");
+
+  res.status(201).json({ success: true, comment: populatedComment });
 });
 
 export const deleteComment = asyncHandler(async (req, res) => {
@@ -213,6 +213,6 @@ export const deleteComment = asyncHandler(async (req, res) => {
 
   res.status(200).json({
     success: true,
-    message: "Comment and associated replies deleted successfully.",
+    message: "Comment deleted successfully.",
   });
 });

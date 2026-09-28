@@ -10,6 +10,23 @@ const channelSchema = new Schema(
       trim: true,
       maxlength: 100,
     },
+    handle: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      maxlength: 50,
+      default: null,
+    },
+    description: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      default: "",
+    },
+    category: {
+      type: String,
+      default: "General",
+    },
     ownerId: {
       type: Schema.Types.ObjectId,
       ref: "User",

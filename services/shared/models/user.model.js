@@ -27,7 +27,6 @@ const userSchema = new Schema(
       unique: true,
       sparse: true,
       index: true,
-      default: null,
     },
     refreshTokenHash: {
       type: String,
