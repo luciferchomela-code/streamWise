@@ -20,6 +20,7 @@ router.get("/channel/:channelId", optionalAuth, proxy);
 
 // Protected Actions
 router.post("/draft", isAuth, proxy);
+router.patch("/:videoId/finalize", isAuth, proxy);
 router.delete("/:videoId", isAuth, proxy);
 
 // Param-matched Single Resource (Public / Optional Auth)

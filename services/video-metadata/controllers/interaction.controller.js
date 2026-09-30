@@ -216,3 +216,68 @@ export const deleteComment = asyncHandler(async (req, res) => {
     message: "Comment deleted successfully.",
   });
 });
+
+export const toggleWatchLater = asyncHandler(async (req, res) => {
+  const { videoId } = req.params;
+  const userId = req.auth.userId;
+
+  const previousInteraction = await VideoInteraction.findOne({ userId, videoId });
+  let newWatchLaterState = true;
+  if (previousInteraction && previousInteraction.watchLater) {
+    newWatchLaterState = false;
+  }
+
+  const interaction = await VideoInteraction.findOneAndUpdate(
+    { userId, videoId },
+    { $set: { watchLater: newWatchLaterState } },
+    { new: true, upsert: true }
+  );
+
+  res.status(200).json({
+    success: true,
+    message: newWatchLaterState ? "Saved to Watch Later" : "Removed from Watch Later",
+    watchLater: newWatchLaterState,
+    interaction,
+  });
+});
+
+export const getWatchLater = asyncHandler(async (req, res) => {
+  const userId = req.auth.userId;
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 20;
+  const skip = (page - 1) * limit;
+
+  const interactions = await VideoInteraction.find({ userId, watchLater: true })
+    .sort({ updatedAt: -1 })
+    .skip(skip)
+    .limit(limit)
+    .populate({
+      path: "videoId",
+      populate: { path: "channelId", select: "name image handle subscribersCount" },
+    });
+
+  const total = await VideoInteraction.countDocuments({ userId, watchLater: true });
+
+  const videos = interactions
+    .filter((i) => i.videoId)
+    .map((i) => i.videoId);
+
+  res.status(200).json({
+    success: true,
+    page,
+    totalPages: Math.ceil(total / limit),
+    total,
+    videos,
+  });
+});
+
+export const checkWatchLaterStatus = asyncHandler(async (req, res) => {
+  const { videoId } = req.params;
+  const userId = req.auth.userId;
+
+  const interaction = await VideoInteraction.findOne({ userId, videoId });
+  res.status(200).json({
+    success: true,
+    watchLater: !!(interaction && interaction.watchLater),
+  });
+});

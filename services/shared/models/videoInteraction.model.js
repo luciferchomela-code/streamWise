@@ -26,6 +26,10 @@ const videoInteractionSchema = new Schema(
       default: false,
     },
 
+    watchLater: {
+      type: Boolean,
+      default: false,
+    },
     viewCount: {
       type: Number,
       default: 0,
@@ -46,12 +50,10 @@ const videoInteractionSchema = new Schema(
 );
 
 videoInteractionSchema.index({ userId: 1, videoId: 1 }, { unique: true });
-
 videoInteractionSchema.index({ userId: 1, lastViewedAt: -1 });
-
 videoInteractionSchema.index({ userId: 1, liked: 1, updatedAt: -1 });
-
 videoInteractionSchema.index({ userId: 1, disliked: 1, updatedAt: -1 });
+videoInteractionSchema.index({ userId: 1, watchLater: 1, updatedAt: -1 });
 
 
 

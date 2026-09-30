@@ -53,4 +53,39 @@ export const generateImageSignature = (folderType = "image") => {
   };
 };
 
+// ─── Generate Signed Upload Parameters for Video Direct Uploads ───────────────
+export const generateVideoSignature = (videoId) => {
+  ensureCloudinaryConfig();
+  const timestamp = Math.round(Date.now() / 1000);
+  const folder = `streamwise/videos`;
+  const publicId = `${folder}/${videoId}`; // deterministic — tied to MongoDB _id
+
+  const eager = "sp_hd/m3u8"; // Generates HLS streaming profile (1080p, 720p, 480p)
+  const eager_async = true;   // Do it in the background so upload finishes instantly
+
+  const paramsToSign = { 
+    timestamp, 
+    folder, 
+    public_id: publicId,
+    eager,
+    eager_async 
+  };
+  const signature = cloudinary.utils.api_sign_request(
+    paramsToSign,
+    process.env.CLOUD_SECRET_KEY
+  );
+
+  return {
+    signature,
+    timestamp,
+    folder,
+    publicId,
+    eager,
+    eagerAsync: eager_async,
+    apiKey: process.env.CLOUD_API_KEY,
+    cloudName: process.env.CLOUD_NAME,
+    uploadUrl: `https://api.cloudinary.com/v1_1/${process.env.CLOUD_NAME}/video/upload`,
+  };
+};
+
 export { cloudinary, ensureCloudinaryConfig };

@@ -2,19 +2,26 @@ import express from "express";
 import {
   getImageSignature,
   deleteImage,
-} from "../controllers/upload.controller.js";
+} from "../controllers/Imageupload.controller.js";
+import {
+  getVideoSignature,
+  deleteVideo,
+} from "../controllers/videoupload.controller.js";
+import { streamVideo } from "../controllers/stream.controller.js";
 
 const router = express.Router();
 
-/**
- * GET /api/upload/image/signature?type=thumbnail|avatar|banner
- * Generates signed params for direct browser -> Cloudinary uploads (Option B).
- */
 router.get("/image/signature", getImageSignature);
-
-/**
- * DELETE /api/upload/image?publicId=streamwise/thumbnails/xyz
- */
 router.delete("/image", deleteImage);
 
+router.get("/video/signature", getVideoSignature);
+router.delete("/video", deleteVideo);
+
+// ─── Stream Route ─────────────────────────────────────────────────────────────
+// GET /api/stream/:videoId
+// Public endpoint — auth forwarded via x-user-id header for private video checks.
+// 302 redirects to Cloudinary CDN — Node.js never touches a single video byte.
+router.get("/stream/:videoId", streamVideo);
+
 export default router;
+

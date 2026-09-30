@@ -33,7 +33,7 @@ const start = async () => {
     await connectDB();
 
     app.listen(PORT, () => {
-        console.log(`Auth service running on port ${PORT}`);
+        console.log(`Auth service is running on port ${PORT}`);
     });
 };
 

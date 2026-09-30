@@ -12,33 +12,47 @@ import videoRoutes from "./src/routes/video.services.js";
 import channelRoutes from "./src/routes/channel.services.js";
 import interactionRoutes from "./src/routes/interaction.services.js";
 import uploadRoutes from "./src/routes/upload.services.js";
+import streamRoutes from "./src/routes/stream.services.js";
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Initialize Redis Client
+const USE_REDIS = process.env.REDIS_URL || process.env.USE_REDIS === 'true';
 const redisClient = createClient({
   url: process.env.REDIS_URL || "redis://localhost:6379",
 });
 
-redisClient.on("error", (err) => console.error("Redis Client Error", err));
-redisClient.connect().catch(console.error);
+if (USE_REDIS) {
+  redisClient.on("error", (err) => console.error("Redis Client Error", err.message));
+  redisClient.connect().catch(() => console.warn("Redis not connected, skipping caching."));
+}
 
 app.use(helmet());
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || "http://localhost:5173",
+    origin: function(origin, callback) {
+      if (!origin || /^https?:\/\/(localhost|127\.0\.0\.1)(:[0-9]+)?$/.test(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
   })
 );
 
+let rateLimitStore;
+if (process.env.REDIS_URL || process.env.USE_REDIS === 'true') {
+  rateLimitStore = new RedisStore({
+    sendCommand: (...args) => redisClient.sendCommand(args),
+  });
+}
+
 app.use(
   rateLimit({
-    store: new RedisStore({
-      sendCommand: (...args) => redisClient.sendCommand(args),
-    }),
+    store: rateLimitStore, // Defaults to MemoryStore if undefined
     windowMs: 15 * 60 * 1000,
     max: 200,
     standardHeaders: true,
@@ -72,6 +86,7 @@ app.use("/api/videos", videoRoutes);
 app.use("/api/channels", channelRoutes);
 app.use("/api/interactions", interactionRoutes);
 app.use("/api/upload", uploadRoutes);
+app.use("/api/stream", streamRoutes);   // GET /api/stream/:videoId
 
 app.use((req, res) => {
   res.status(404).json({ message: "Route not found", requestId: req.requestId });

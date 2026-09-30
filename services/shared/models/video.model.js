@@ -34,6 +34,10 @@ const videoSchema = new Schema(
       type: String,
       default: null,
     },
+    publicId: {
+      type: String,   // Cloudinary public_id — used for deletion
+      default: null,
+    },
     duration: {
       type: Number,
       default: null,

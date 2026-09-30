@@ -8,13 +8,18 @@ const UPLOAD_SERVICE_URL = process.env.UPLOAD_SERVICE_URL || "http://localhost:5
 
 const proxy = createProxy(UPLOAD_SERVICE_URL, "Upload service");
 
-// ─── Upload Routes (all protected) ───────────────────────────────────────────
-
-// POST /api/upload/image?type=thumbnail|avatar|banner
-// Accepts: multipart/form-data  field: "image"
-router.post("/image", isAuth, proxy);
+// ─── Image Routes (all protected) ─────────────────────────────────────────────
+// GET  /api/upload/image/signature?type=thumbnail|avatar|banner
+router.get("/image/signature", isAuth, proxy);
 
 // DELETE /api/upload/image?publicId=...
 router.delete("/image", isAuth, proxy);
+
+// ─── Video Routes (all protected) ─────────────────────────────────────────────
+// GET /api/upload/video/signature?videoId=...
+router.get("/video/signature", isAuth, proxy);
+
+// DELETE /api/upload/video?publicId=...
+router.delete("/video", isAuth, proxy);
 
 export default router;

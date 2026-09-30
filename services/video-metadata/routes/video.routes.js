@@ -1,10 +1,11 @@
 import express from "express";
 import {
   createDraft,
+  finalizeVideo,
   channelVideos,
   deleteVideo,
   trendingVideos,
-  latestVideos,
+  mostPopularVideos,
   getVideoById,
   searchVideos,
 } from "../controllers/video.controllers.js";
@@ -14,12 +15,13 @@ import { optionalGatewayIdentity } from "../middlewares/optionalGatewayIdentity.
 const router = express.Router();
 
 router.get("/trending", optionalGatewayIdentity, trendingVideos);
-router.get("/latest", optionalGatewayIdentity, latestVideos);
+router.get("/popular", optionalGatewayIdentity, mostPopularVideos);
 router.get("/search", optionalGatewayIdentity, searchVideos);
 router.get("/channel/:channelId", optionalGatewayIdentity, channelVideos);
 router.get("/:videoId", optionalGatewayIdentity, getVideoById);
 
 router.post("/draft", requireGatewayIdentity, createDraft);
+router.patch("/:videoId/finalize", requireGatewayIdentity, finalizeVideo);
 router.delete("/:videoId", requireGatewayIdentity, deleteVideo);
 
 export default router;
