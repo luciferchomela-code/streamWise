@@ -1,9 +1,26 @@
 import asyncHandler from "../middlewares/tryCatch.js";
 import Video from "../../shared/models/video.model.js";
 import Channel from "../../shared/models/channel.model.js";
+import Comment from "../../shared/models/comments.model.js";
+import { publishEvent } from "../../shared/config/rabbitmq.js";
+import {
+  getCacheNamespaceVersion,
+  getOrSetJsonCache,
+  invalidateCacheNamespace,
+} from "../utils/redisCache.js";
+
+const GLOBAL_VIDEO_FEED_CACHE = "global-video-feeds";
+const TRENDING_CACHE_TTL_SECONDS = 30;
+const POPULAR_CACHE_TTL_SECONDS = 120;
+
+const getCachedGlobalVideoFeed = async ({ feed, page, limit, ttlSeconds, loader }) => {
+  const version = await getCacheNamespaceVersion(GLOBAL_VIDEO_FEED_CACHE);
+  const key = `streamwise:video-feed:v${version}:${feed}:page:${page}:limit:${limit}`;
+  return getOrSetJsonCache({ key, ttlSeconds, loader });
+};
 
 export const createDraft = asyncHandler(async (req, res) => {
-  const { title, description, visibility, thumbnailUrl } = req.body;
+  const { title, description, visibility, category, thumbnailUrl } = req.body;
 
   if (!thumbnailUrl) {
     return res.status(400).json({ message: "Thumbnail URL is required." });
@@ -19,6 +36,7 @@ export const createDraft = asyncHandler(async (req, res) => {
     title,
     description,
     thumbnailUrl,
+    category: category || "General",
     status: "draft",         // starts as draft — not visible until finalized
     visibility: visibility || "public",
   });
@@ -61,6 +79,18 @@ export const finalizeVideo = asyncHandler(async (req, res) => {
   video.duration = duration ? Math.round(duration) : null;
   video.status = "ready";
   await video.save();
+  await invalidateCacheNamespace(GLOBAL_VIDEO_FEED_CACHE);
+
+  void publishEvent("video.finalized", {
+    videoId: video._id.toString(),
+    channelId: video.channelId.toString(),
+    ownerId: channel.ownerId.toString(),
+    title: video.title,
+    visibility: video.visibility,
+    publicId: video.publicId,
+    duration: video.duration,
+    status: "ready",
+  });
 
   res.status(200).json({ success: true, video });
 });
@@ -111,9 +141,34 @@ export const deleteVideo = asyncHandler(async (req, res) => {
     return res.status(403).json({ message: "You are not authorized to delete this video." });
   }
 
-  await video.deleteOne();
+  // Step 1: Delete from Cloudinary (video resource type)
+  if (video.publicId) {
+    const uploadServiceUrl = process.env.UPLOAD_SERVICE_URL || 'http://localhost:5003';
+    try {
+      const cloudRes = await fetch(
+        `${uploadServiceUrl}/api/upload/video?publicId=${encodeURIComponent(video.publicId)}`,
+        { method: 'DELETE' }
+      );
+      if (!cloudRes.ok) {
+        const body = await cloudRes.json().catch(() => ({}));
+        // If the asset simply didn't exist on Cloudinary, that's fine — continue
+        if (body.result !== 'not found') {
+          return res.status(502).json({
+            message: `Cloudinary deletion failed: ${body.message || cloudRes.statusText}`,
+          });
+        }
+      }
+    } catch (fetchErr) {
+      return res.status(502).json({ message: `Could not reach upload service: ${fetchErr.message}` });
+    }
+  }
 
-  // Optional: Emit event to message queue (RabbitMQ) or send a call to file storage service to delete thumbnail/video media.
+  // Step 2: Delete all comments belonging to this video (prevent orphans)
+  await Comment.deleteMany({ videoId: video._id });
+
+  // Step 3: Delete the video document
+  await video.deleteOne();
+  await invalidateCacheNamespace(GLOBAL_VIDEO_FEED_CACHE);
 
   res.status(200).json({
     success: true,
@@ -125,51 +180,70 @@ export const trendingVideos = asyncHandler(async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 10;
   const skip = (page - 1) * limit;
-
-  // Calculate timestamp for 24 hours ago
-  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-
-  const queryFilter = {
-    visibility: "public",
-    status: { $in: ["ready", "published"] },
-    createdAt: { $gte: twentyFourHoursAgo }, // Restrict to the last 24 hours
-  };
-
-  const [videos, totalVideos] = await Promise.all([
-    Video.find(queryFilter).sort({ views: -1 }).skip(skip).limit(limit),
-    Video.countDocuments(queryFilter),
-  ]);
-
-  res.status(200).json({
-    success: true,
+  const { value, cacheStatus } = await getCachedGlobalVideoFeed({
+    feed: "trending",
     page,
-    totalPages: Math.ceil(totalVideos / limit),
-    videos,
+    limit,
+    ttlSeconds: TRENDING_CACHE_TTL_SECONDS,
+    loader: async () => {
+      // Calculate timestamp for 24 hours ago on cache misses.
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const queryFilter = {
+        visibility: "public",
+        status: { $in: ["ready", "published"] },
+        createdAt: { $gte: twentyFourHoursAgo },
+      };
+
+      const [videos, totalVideos] = await Promise.all([
+        Video.find(queryFilter).sort({ views: -1 }).skip(skip).limit(limit),
+        Video.countDocuments(queryFilter),
+      ]);
+
+      return {
+        success: true,
+        page,
+        totalPages: Math.ceil(totalVideos / limit),
+        videos,
+      };
+    },
   });
+
+  res.set("X-Cache", cacheStatus);
+  res.status(200).json(value);
 });
 
 export const mostPopularVideos = asyncHandler(async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 10;
   const skip = (page - 1) * limit;
-
-  // All-time best/most viewed videos
-  const queryFilter = {
-    visibility: "public",
-    status: { $in: ["ready", "published"] },
-  };
-
-  const [videos, totalVideos] = await Promise.all([
-    Video.find(queryFilter).sort({ views: -1 }).skip(skip).limit(limit),
-    Video.countDocuments(queryFilter),
-  ]);
-
-  res.status(200).json({
-    success: true,
+  const { value, cacheStatus } = await getCachedGlobalVideoFeed({
+    feed: "popular",
     page,
-    totalPages: Math.ceil(totalVideos / limit),
-    videos,
+    limit,
+    ttlSeconds: POPULAR_CACHE_TTL_SECONDS,
+    loader: async () => {
+      // All-time best/most viewed videos.
+      const queryFilter = {
+        visibility: "public",
+        status: { $in: ["ready", "published"] },
+      };
+
+      const [videos, totalVideos] = await Promise.all([
+        Video.find(queryFilter).sort({ views: -1 }).skip(skip).limit(limit),
+        Video.countDocuments(queryFilter),
+      ]);
+
+      return {
+        success: true,
+        page,
+        totalPages: Math.ceil(totalVideos / limit),
+        videos,
+      };
+    },
   });
+
+  res.set("X-Cache", cacheStatus);
+  res.status(200).json(value);
 });
 
 export const getVideoById = asyncHandler(async (req, res) => {

@@ -18,5 +18,3 @@ export const getOAuth2Client = () => {
 
   return new google.auth.OAuth2(clientId, clientSecret, callbackUrl);
 };
-
-export const oauth2client = getOAuth2Client();

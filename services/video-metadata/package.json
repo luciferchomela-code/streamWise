@@ -13,12 +13,14 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "amqplib": "^2.2.0",
     "axios": "^1.20.0",
     "cors": "^2.8.6",
     "datauri": "^4.1.0",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "mongoose": "^9.9.4",
-    "multer": "^2.2.0"
+    "multer": "^2.2.0",
+    "redis": "^6.2.1"
   }
 }

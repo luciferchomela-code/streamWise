@@ -1,11 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-
-const getHeaders = (requiresAuth = false) => {
-  const token = localStorage.getItem('accessToken');
-  const headers = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  return headers;
-};
+import { apiFetch, API_BASE_URL } from './apiFetch';
 
 const formatViews = (n) => {
   if (!n) return '0';
@@ -63,9 +56,8 @@ export const normalizeVideo = (v) => ({
 
 export const videoService = {
   getTrending: async ({ page = 1, limit = 12 } = {}) => {
-    const res = await fetch(
-      `${API_BASE_URL}/videos/trending?page=${page}&limit=${limit}`,
-      { headers: getHeaders() }
+    const res = await apiFetch(
+      `${API_BASE_URL}/videos/trending?page=${page}&limit=${limit}`
     );
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.message || 'Failed to fetch trending videos');
@@ -73,9 +65,8 @@ export const videoService = {
   },
 
   getPopular: async ({ page = 1, limit = 12 } = {}) => {
-    const res = await fetch(
-      `${API_BASE_URL}/videos/popular?page=${page}&limit=${limit}`,
-      { headers: getHeaders() }
+    const res = await apiFetch(
+      `${API_BASE_URL}/videos/popular?page=${page}&limit=${limit}`
     );
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.message || 'Failed to fetch popular videos');
@@ -83,9 +74,8 @@ export const videoService = {
   },
 
   search: async (q, { page = 1, limit = 12 } = {}) => {
-    const res = await fetch(
-      `${API_BASE_URL}/videos/search?q=${encodeURIComponent(q)}&page=${page}&limit=${limit}`,
-      { headers: getHeaders() }
+    const res = await apiFetch(
+      `${API_BASE_URL}/videos/search?q=${encodeURIComponent(q)}&page=${page}&limit=${limit}`
     );
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.message || 'Search failed');
@@ -93,18 +83,15 @@ export const videoService = {
   },
 
   getVideoById: async (videoId) => {
-    const res = await fetch(`${API_BASE_URL}/videos/${videoId}`, {
-      headers: getHeaders(),
-    });
+    const res = await apiFetch(`${API_BASE_URL}/videos/${videoId}`);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.message || 'Failed to fetch video');
     return normalizeVideo(data.video);
   },
 
   getChannelVideos: async (channelId, { page = 1, limit = 12 } = {}) => {
-    const res = await fetch(
-      `${API_BASE_URL}/videos/channel/${channelId}?page=${page}&limit=${limit}`,
-      { headers: getHeaders() }
+    const res = await apiFetch(
+      `${API_BASE_URL}/videos/channel/${channelId}?page=${page}&limit=${limit}`
     );
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.message || 'Failed to fetch channel videos');
@@ -112,9 +99,8 @@ export const videoService = {
   },
 
   createDraft: async (videoData) => {
-    const res = await fetch(`${API_BASE_URL}/videos/draft`, {
+    const res = await apiFetch(`${API_BASE_URL}/videos/draft`, {
       method: 'POST',
-      headers: getHeaders(),
       body: JSON.stringify(videoData)
     });
     const data = await res.json().catch(() => ({}));
@@ -123,9 +109,8 @@ export const videoService = {
   },
 
   finalizeVideo: async (videoId, finalizeData) => {
-    const res = await fetch(`${API_BASE_URL}/videos/${videoId}/finalize`, {
+    const res = await apiFetch(`${API_BASE_URL}/videos/${videoId}/finalize`, {
       method: 'PATCH',
-      headers: getHeaders(),
       body: JSON.stringify(finalizeData)
     });
     const data = await res.json().catch(() => ({}));
@@ -134,9 +119,8 @@ export const videoService = {
   },
 
   deleteVideo: async (videoId) => {
-    const res = await fetch(`${API_BASE_URL}/videos/${videoId}`, {
+    const res = await apiFetch(`${API_BASE_URL}/videos/${videoId}`, {
       method: 'DELETE',
-      headers: getHeaders()
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.message || 'Failed to delete video');

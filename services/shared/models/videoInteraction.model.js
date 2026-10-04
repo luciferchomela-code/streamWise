@@ -41,6 +41,11 @@ const videoInteractionSchema = new Schema(
       min: 0,
       max: 100,
     },
+    lastWatchedPosition: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     lastViewedAt: {
       type: Date,
       default: null,

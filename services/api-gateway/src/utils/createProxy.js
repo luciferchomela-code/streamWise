@@ -20,6 +20,13 @@ export const createProxy = (targetUrl, serviceName = "Unknown service") => {
           }
         }
       },
+      proxyRes: (proxyRes) => {
+        // Prevent downstream services from overriding gateway CORS
+        delete proxyRes.headers["access-control-allow-origin"];
+        delete proxyRes.headers["access-control-allow-methods"];
+        delete proxyRes.headers["access-control-allow-credentials"];
+        delete proxyRes.headers["access-control-allow-headers"];
+      },
       error: (err, req, res) => {
         console.error(
           `[API-Gateway] ${serviceName} proxy error [${req.requestId || "unknown"}]:`,

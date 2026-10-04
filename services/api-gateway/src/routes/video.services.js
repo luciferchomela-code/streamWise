@@ -14,6 +14,7 @@ const proxy = createProxy(VIDEO_METADATA_SERVICE_URL, "Video metadata service");
 
 // Static & Collection Routes (Public)
 router.get("/trending", optionalAuth, proxy);
+router.get("/popular", optionalAuth, proxy);
 router.get("/latest", optionalAuth, proxy);
 router.get("/search", optionalAuth, proxy);
 router.get("/channel/:channelId", optionalAuth, proxy);

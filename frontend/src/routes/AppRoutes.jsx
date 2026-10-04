@@ -7,7 +7,7 @@ import MyChannel from '../pages/Channel/MyChannel';
 import WatchVideo from '../pages/Watch/WatchVideo';
 import WatchLater from '../pages/WatchLater/WatchLater';
 import Subscriptions from '../pages/Subscriptions/Subscriptions';
-
+import History from '../pages/History/History';
 import UploadVideo from '../pages/Upload/UploadVideo';
 
 export const AppRoutes = () => {
@@ -24,7 +24,9 @@ export const AppRoutes = () => {
       <Route path="/subscriptions" element={<Subscriptions />} />
       <Route path="/following" element={<Subscriptions />} />
       <Route path="/upload" element={<UploadVideo />} />
+      <Route path="/history" element={<History />} />
       <Route path="*" element={<Login />} />
     </Routes>
   );
 };
+

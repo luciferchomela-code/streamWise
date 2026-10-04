@@ -5,6 +5,7 @@ import { videoService } from '../../services/videoService';
 import { useAuth } from '../../hooks/useAuth';
 import { Navbar } from '../../components/layout/Navbar/Navbar';
 import { VideoCard } from '../../components/home/VideoCard/VideoCard';
+import ImageUploader from '../../components/common/ImageUploader/ImageUploader';
 
 const CATEGORIES = ['General', 'Technology', 'Gaming', 'Education', 'Music', 'Sports', 'Art', 'Lifestyle', 'Science'];
 
@@ -183,7 +184,7 @@ export default function MyChannel() {
     <div className="min-h-screen bg-[#0B0D12] text-white flex flex-col">
       <Navbar />
       <div className="flex-1 flex items-center justify-center p-6">
-        <div className="bg-[#151923] p-8 rounded-3xl border border-white/5 shadow-2xl w-full max-w-lg relative overflow-hidden">
+        <div className="bg-[#151923] p-8 rounded-3xl border border-white/5 shadow-2xl w-full max-w-lg relative overflow-hidden my-8">
           <div className="absolute top-0 right-0 w-64 h-64 bg-cyan-500/10 rounded-full blur-3xl -mr-32 -mt-32 pointer-events-none"></div>
           <div className="absolute bottom-0 left-0 w-64 h-64 bg-violet-500/10 rounded-full blur-3xl -ml-32 -mb-32 pointer-events-none"></div>
           
@@ -206,6 +207,20 @@ export default function MyChannel() {
             )}
 
             <form onSubmit={handleCreate} className="space-y-4">
+              <div className="flex flex-col items-center mb-6">
+                <div className="w-32">
+                  <ImageUploader 
+                    imageType="avatar" 
+                    aspectRatio="1 / 1" 
+                    label="Profile Picture" 
+                    hint="Optional" 
+                    disabled={isCreating}
+                    className="!w-32 !h-32 !rounded-full overflow-hidden" 
+                    onUploadComplete={(url) => setFormData({...formData, image: url})} 
+                  />
+                </div>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1.5">Channel Name <span className="text-red-400">*</span></label>
                 <input

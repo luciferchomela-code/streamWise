@@ -40,3 +40,16 @@ Frontend -> API Gateway -> services
 Upload complete -> RabbitMQ -> metadata updates video status
 Viewer activity -> RabbitMQ -> recommendations update home feed
 ```
+
+## Start the complete project
+
+1. Copy `.env.example` to `.env` and replace the Google and Cloudinary placeholder values.
+2. From the project root, run:
+
+```powershell
+.\scripts\start.ps1
+```
+
+This builds the images and starts MongoDB, Redis, RabbitMQ, every backend service, and the frontend. The script runs services in the background; use `-Foreground` to keep the logs attached.
+
+Open `http://localhost:5173` after the frontend is running. RabbitMQ management is available at `http://localhost:15672`.

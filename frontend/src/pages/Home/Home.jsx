@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { Navbar } from '../../components/layout/Navbar/Navbar';
 import { CategoryFilter } from '../../components/home/CategoryFilter/CategoryFilter';
 import { HeroCard } from '../../components/home/HeroCard/HeroCard';
 import { VideoCard } from '../../components/home/VideoCard/VideoCard';
 import { CreatorsRow } from '../../components/home/CreatorsRow/CreatorsRow';
 import { videoService } from '../../services/videoService';
+import { interactionService } from '../../services/interactionService';
+import { useAuth } from '../../hooks/useAuth';
 
 const VideoSkeleton = () => (
   <div className="flex flex-col gap-3 animate-pulse">
@@ -25,7 +28,17 @@ const EmptyState = ({ message }) => (
   </div>
 );
 
+const formatDuration = (seconds) => {
+  if (!seconds) return '';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, '0')}`;
+};
+
 export const Home = () => {
+  const { user } = useAuth();
   const [trendingVideos, setTrendingVideos] = useState([]);
   const [popularVideos, setPopularVideos] = useState([]);
   const [trendingLoading, setTrendingLoading] = useState(true);
@@ -34,6 +47,9 @@ export const Home = () => {
   const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [isSearchMode, setIsSearchMode] = useState(false);
+
+  // Continue Watching
+  const [continueWatching, setContinueWatching] = useState([]);
 
   useEffect(() => {
     const fetchTrending = async () => {
@@ -61,6 +77,13 @@ export const Home = () => {
     fetchTrending();
     fetchPopular();
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    interactionService.getContinueWatching().then((res) => {
+      setContinueWatching(res.continueWatching || []);
+    }).catch(() => {});
+  }, [user]);
 
   const handleSearch = async (q) => {
     setSearchQuery(q);
@@ -114,8 +137,13 @@ export const Home = () => {
               {/* ── Hero Card ── */}
               {trendingLoading
                 ? <div className="w-full aspect-[21/9] max-h-[420px] rounded-2xl bg-white/5 animate-pulse mt-6" />
-                : <HeroCard video={featuredVideo} />
+                : <HeroCard 
+                    video={continueWatching.length > 0 ? continueWatching[0] : featuredVideo} 
+                    isContinueWatching={continueWatching.length > 0} 
+                  />
               }
+
+
 
               {/* ── Trending Now ── */}
               <section className="my-12 md:my-16">
@@ -199,3 +227,4 @@ export const Home = () => {
 };
 
 export default Home;
+

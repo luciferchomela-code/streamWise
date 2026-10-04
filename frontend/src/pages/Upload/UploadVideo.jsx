@@ -16,6 +16,7 @@ export default function UploadVideo() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [visibility, setVisibility] = useState('public');
+  const [category, setCategory] = useState('General');
 
   // ── Managed by child uploaders ───────────────────────────────────────────────
   const [thumbnailUrl, setThumbnailUrl] = useState('');   // set by <ImageUploader>
@@ -55,6 +56,7 @@ export default function UploadVideo() {
         title,
         description,
         visibility,
+        category,
         thumbnailUrl,
       });
       const videoId = draftVideo._id || draftVideo.id;
@@ -166,6 +168,24 @@ export default function UploadVideo() {
                       <option value="public">Public – Everyone can watch</option>
                       <option value="unlisted">Unlisted – Anyone with the link can watch</option>
                       <option value="private">Private – Only you can watch</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-1">Category</label>
+                    <select
+                      value={category}
+                      onChange={(e) => setCategory(e.target.value)}
+                      className="w-full bg-[#0B0D12] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 transition-colors"
+                      disabled={uploading}
+                    >
+                      <option value="General">General</option>
+                      <option value="Gaming">Gaming</option>
+                      <option value="Music">Music</option>
+                      <option value="Education">Education</option>
+                      <option value="Entertainment">Entertainment</option>
+                      <option value="Tech">Tech</option>
+                      <option value="News">News</option>
                     </select>
                   </div>
 

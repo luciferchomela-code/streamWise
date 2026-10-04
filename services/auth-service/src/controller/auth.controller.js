@@ -19,10 +19,10 @@ const tokenPayload = (user, type) => ({
 
 const issueTokens = (user) => ({
   accessToken: jwt.sign(tokenPayload(user, "access"), accessTokenSecret(), {
-    expiresIn: "15m",
+    expiresIn: "2h",
   }),
   refreshToken: jwt.sign(tokenPayload(user, "refresh"), refreshTokenSecret(), {
-    expiresIn: "7d",
+    expiresIn: "30d",
   }),
 })
 

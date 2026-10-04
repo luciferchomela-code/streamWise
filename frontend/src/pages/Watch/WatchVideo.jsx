@@ -5,6 +5,7 @@ import { videoService } from '../../services/videoService';
 import { interactionService } from '../../services/interactionService';
 import { channelService } from '../../services/channelService';
 import { useAuth } from '../../hooks/useAuth';
+import { VideoPlayer } from '../../components/common/VideoPlayer/VideoPlayer';
 
 const formatNumber = (n) => {
   if (!n) return '0';
@@ -24,33 +25,55 @@ const formatTimeAgo = (dateStr) => {
   return `${days}d ago`;
 };
 
-const CommentItem = ({ comment, onDelete, currentUserId }) => (
-  <div className="flex gap-3 group">
-    <img
-      src={comment.authorId?.image || `https://ui-avatars.com/api/?name=${comment.authorId?.name || 'U'}&background=1A1F2B&color=fff`}
-      alt="author"
-      className="w-8 h-8 rounded-full object-cover shrink-0"
-    />
-    <div className="flex-1 min-w-0">
-      <div className="flex items-center gap-2 mb-1">
-        <span className="text-white text-sm font-semibold">{comment.authorId?.name || 'Anonymous'}</span>
-        <span className="text-gray-500 text-xs">{formatTimeAgo(comment.createdAt)}</span>
+const CommentItem = ({ comment, onDelete, currentUserId, isVideoOwner }) => {
+  const [deleting, setDeleting] = useState(false);
+  const canDelete = comment.authorId?._id === currentUserId || isVideoOwner;
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      await onDelete(comment._id);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <div className="flex gap-3 group">
+      <img
+        src={comment.authorId?.image || `https://ui-avatars.com/api/?name=${comment.authorId?.name || 'U'}&background=1A1F2B&color=fff`}
+        alt="author"
+        className="w-8 h-8 rounded-full object-cover shrink-0"
+      />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-white text-sm font-semibold">{comment.authorId?.name || 'Anonymous'}</span>
+          <span className="text-gray-500 text-xs">{formatTimeAgo(comment.createdAt)}</span>
+          {isVideoOwner && comment.authorId?._id !== currentUserId && (
+            <span className="text-[10px] px-1.5 py-0.5 bg-violet-500/20 text-violet-400 rounded-full border border-violet-500/30">moderated</span>
+          )}
+        </div>
+        <p className="text-gray-300 text-sm leading-relaxed">{comment.body}</p>
       </div>
-      <p className="text-gray-300 text-sm leading-relaxed">{comment.body}</p>
+      {canDelete && (
+        <button
+          onClick={handleDelete}
+          disabled={deleting}
+          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-gray-500 hover:text-red-400 disabled:opacity-50"
+          aria-label="Delete comment"
+        >
+          {deleting ? (
+            <div className="w-4 h-4 border-2 border-gray-500 border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          )}
+        </button>
+      )}
     </div>
-    {comment.authorId?._id === currentUserId && (
-      <button
-        onClick={() => onDelete(comment._id)}
-        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-gray-500 hover:text-red-400"
-        aria-label="Delete comment"
-      >
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-        </svg>
-      </button>
-    )}
-  </div>
-);
+  );
+};
 
 export default function WatchVideo() {
   const { videoId } = useParams();
@@ -70,6 +93,7 @@ export default function WatchVideo() {
   const [views, setViews] = useState(0);
   const [subscribed, setSubscribed] = useState(false);
   const [savedWatchLater, setSavedWatchLater] = useState(false);
+  const [startPosition, setStartPosition] = useState(0);
 
   // Comments
   const [comments, setComments] = useState([]);
@@ -79,6 +103,14 @@ export default function WatchVideo() {
 
   // Channel
   const [channel, setChannel] = useState(null);
+
+  // Delete video state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+
+  // Comment error
+  const [commentError, setCommentError] = useState('');
 
   const viewTracked = useRef(false);
 
@@ -111,8 +143,13 @@ export default function WatchVideo() {
         }
 
         if (user) {
-          interactionService.getWatchLaterStatus(videoId).then(d => {
+          interactionService.getInteractionStatus(videoId).then(d => {
             setSavedWatchLater(!!d.watchLater);
+            setLiked(!!d.liked);
+            setDisliked(!!d.disliked);
+            if (d.lastWatchedPosition > 0) {
+              setStartPosition(d.lastWatchedPosition);
+            }
           }).catch(() => {});
         }
 
@@ -136,20 +173,31 @@ export default function WatchVideo() {
       .then(setComments)
       .catch(() => setComments([]))
       .finally(() => setCommentsLoading(false));
+
+    // Record a page visit immediately so watch history is updated on open
+    if (user) {
+      interactionService.incrementView(videoId, 1, 0).catch(() => {});
+    }
   }, [videoId, user]);
 
-  // Track view after 5s
-  useEffect(() => {
-    if (!video || viewTracked.current) return;
-    const timer = setTimeout(async () => {
-      viewTracked.current = true;
-      try {
-        const result = await interactionService.incrementView(videoId, 30);
-        if (result?.views !== undefined) setViews(result.views);
-      } catch {}
-    }, 5000);
-    return () => clearTimeout(timer);
-  }, [video, videoId]);
+  // Determine if current user owns this video's channel
+  const isVideoOwner = channel && user && channel.ownerId
+    ? channel.ownerId === (user._id || user.id)
+    : false;
+
+  const handleDeleteVideo = async () => {
+    if (deleting) return; // prevent duplicate requests
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      await videoService.deleteVideo(videoId);
+      setShowDeleteModal(false);
+      navigate('/my-channel'); // redirect after successful deletion
+    } catch (err) {
+      setDeleteError(err.message || 'Failed to delete video. Please try again.');
+      setDeleting(false);
+    }
+  };
 
   const handleLike = async () => {
     if (!user) { navigate('/login'); return; }
@@ -208,12 +256,16 @@ export default function WatchVideo() {
     if (!user) { navigate('/login'); return; }
     if (!commentText.trim()) return;
     setCommentSubmitting(true);
+    setCommentError('');
     try {
       const newComment = await interactionService.addComment(videoId, commentText);
       setComments(prev => [newComment, ...prev]);
       setCommentText('');
-    } catch (err) { console.error(err); }
-    finally { setCommentSubmitting(false); }
+    } catch (err) {
+      setCommentError(err.message || 'Failed to post comment.');
+    } finally {
+      setCommentSubmitting(false);
+    }
   };
 
   const handleDeleteComment = async (commentId) => {
@@ -264,22 +316,24 @@ export default function WatchVideo() {
   return (
     <div className="min-h-screen bg-[#0B0D12] text-white font-sans">
       <Navbar />
-      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 grid grid-cols-1 xl:grid-cols-3 gap-8">
+      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col xl:flex-row gap-8">
 
         {/* ── Left: Video + Info + Comments ── */}
-        <div className="xl:col-span-2 flex flex-col gap-6">
+        <div className="flex-1 flex flex-col gap-6 min-w-0">
 
           {/* Video Player */}
-          <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-black shadow-2xl">
-            {video?.videoUrl ? (
-              <video
-                key={video.videoUrl}
-                className="w-full h-full"
-                controls
-                autoPlay
-                src={video.videoUrl}
-              />
-            ) : (
+          {video?.videoUrl ? (
+            <VideoPlayer
+              videoId={videoId}
+              title={video.title}
+              thumbnailUrl={video.thumbnail}
+              hlsUrl={video.videoUrl.includes('m3u8') ? video.videoUrl : null}
+              mp4Url={!video.videoUrl.includes('m3u8') ? video.videoUrl : null}
+              duration={video.duration}
+              startPosition={startPosition}
+            />
+          ) : (
+            <div className="relative aspect-video w-full rounded-2xl overflow-hidden shadow-2xl">
               <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-[#151923]">
                 {video?.thumbnail ? (
                   <img src={video.thumbnail} alt={video.title} className="w-full h-full object-cover opacity-40" />
@@ -291,7 +345,40 @@ export default function WatchVideo() {
                   <p className="text-gray-400 text-sm">Video processing or unavailable</p>
                 </div>
               </div>
-            )}
+            </div>
+          )}
+
+          {/* Mobile Recommended Row (shows between video and details on mobile) */}
+          <div className="xl:hidden w-full -mx-4 px-4 sm:mx-0 sm:px-0">
+            <h2 className="text-lg font-bold text-white mb-3">Up Next</h2>
+            <div className="flex overflow-x-auto gap-4 pb-4 scrollbar-hide snap-x">
+              {relatedVideos.map(rv => (
+                <Link
+                  key={rv.id}
+                  to={`/watch/${rv.id}`}
+                  className="snap-start flex-none w-[280px] group flex flex-col gap-3 bg-[#151923] rounded-xl p-2 border border-white/5 hover:border-cyan-400/40 transition-colors"
+                >
+                  <div className="relative w-full aspect-video rounded-lg overflow-hidden">
+                    <img
+                      src={rv.thumbnail}
+                      alt={rv.title}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=V&background=1A1F2B&color=fff`; }}
+                    />
+                    {rv.duration && (
+                      <span className="absolute bottom-1 right-1 bg-black/80 text-white text-[10px] px-1.5 py-0.5 rounded font-medium">
+                        {rv.duration}
+                      </span>
+                    )}
+                  </div>
+                  <div className="min-w-0 px-1 pb-1">
+                    <h3 className="text-sm font-semibold text-white line-clamp-2 group-hover:text-cyan-300 transition-colors leading-snug">{rv.title}</h3>
+                    <p className="text-xs text-gray-400 mt-1">{rv.creator}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">{rv.views} views · {rv.timeAgo}</p>
+                  </div>
+                </Link>
+              ))}
+            </div>
           </div>
 
           {/* Title + Actions */}
@@ -377,7 +464,70 @@ export default function WatchVideo() {
                 <p className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">{video.description}</p>
               </div>
             )}
+
+            {/* Owner Actions: Delete video */}
+            {isVideoOwner && (
+              <div className="mt-4 flex gap-3">
+                <button
+                  onClick={() => { setDeleteError(''); setShowDeleteModal(true); }}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 hover:border-red-500/40 text-red-400 rounded-full text-sm font-medium transition-all"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  Delete Video
+                </button>
+              </div>
+            )}
           </div>
+
+          {/* Delete Confirmation Modal */}
+          {showDeleteModal && (
+            <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-[#151923] rounded-2xl border border-white/10 shadow-2xl p-8 max-w-md w-full">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center shrink-0">
+                    <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-white font-bold text-lg">Delete Video?</h3>
+                    <p className="text-gray-400 text-sm">This cannot be undone.</p>
+                  </div>
+                </div>
+                <p className="text-gray-300 text-sm mb-6">
+                  <strong className="text-white">&ldquo;{video.title}&rdquo;</strong> will be permanently removed from Streamwise and Cloudinary, along with all its comments.
+                </p>
+                {deleteError && (
+                  <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+                    {deleteError}
+                  </div>
+                )}
+                <div className="flex gap-3 justify-end">
+                  <button
+                    onClick={() => setShowDeleteModal(false)}
+                    disabled={deleting}
+                    className="px-5 py-2.5 bg-white/5 hover:bg-white/10 text-gray-300 rounded-full text-sm font-medium transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleDeleteVideo}
+                    disabled={deleting}
+                    className="px-5 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-full text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {deleting ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Deleting...
+                      </>
+                    ) : 'Delete Permanently'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Comments */}
           <section>
@@ -395,15 +545,22 @@ export default function WatchVideo() {
                     type="text"
                     value={commentText}
                     onChange={(e) => setCommentText(e.target.value)}
+                    maxLength={2000}
                     placeholder="Add a comment..."
                     className="w-full bg-transparent border-b border-white/10 focus:border-cyan-400 py-2 text-sm text-white placeholder-gray-500 outline-none transition-colors"
                   />
+                  {commentError && (
+                    <p className="text-red-400 text-xs">{commentError}</p>
+                  )}
                   {commentText && (
-                    <div className="flex justify-end gap-2">
-                      <button type="button" onClick={() => setCommentText('')} className="px-4 py-1.5 text-sm text-gray-300 hover:text-white rounded-full transition-colors">Cancel</button>
-                      <button type="submit" disabled={commentSubmitting} className="px-4 py-1.5 text-sm bg-cyan-500 hover:bg-cyan-400 text-white rounded-full font-medium transition-colors disabled:opacity-50">
-                        {commentSubmitting ? 'Posting...' : 'Comment'}
-                      </button>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-600">{commentText.length}/2000</span>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => { setCommentText(''); setCommentError(''); }} className="px-4 py-1.5 text-sm text-gray-300 hover:text-white rounded-full transition-colors">Cancel</button>
+                        <button type="submit" disabled={commentSubmitting || !commentText.trim()} className="px-4 py-1.5 text-sm bg-cyan-500 hover:bg-cyan-400 text-white rounded-full font-medium transition-colors disabled:opacity-50">
+                          {commentSubmitting ? 'Posting...' : 'Comment'}
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -428,7 +585,13 @@ export default function WatchVideo() {
                   ))
                 : comments.length > 0
                   ? comments.map(c => (
-                      <CommentItem key={c._id} comment={c} onDelete={handleDeleteComment} currentUserId={user?._id || user?.id} />
+                      <CommentItem
+                        key={c._id}
+                        comment={c}
+                        onDelete={handleDeleteComment}
+                        currentUserId={user?._id || user?.id}
+                        isVideoOwner={isVideoOwner}
+                      />
                     ))
                   : <p className="text-gray-500 text-sm">No comments yet. Be the first!</p>
               }
@@ -436,38 +599,40 @@ export default function WatchVideo() {
           </section>
         </div>
 
-        {/* ── Right: Related Videos ── */}
-        <aside className="flex flex-col gap-4">
+        {/* ── Right: Related Videos (Desktop) ── */}
+        <aside className="hidden xl:flex flex-col gap-4 w-[400px] shrink-0">
           <h2 className="text-lg font-bold text-white">Up Next</h2>
-          {relatedVideos.length > 0
-            ? relatedVideos.map(rv => (
-                <Link
-                  key={rv.id}
-                  to={`/watch/${rv.id}`}
-                  className="group flex gap-3 bg-[#151923] rounded-xl p-2 border border-white/5 hover:border-cyan-400/40 transition-colors"
-                >
-                  <div className="relative w-36 aspect-video rounded-lg overflow-hidden shrink-0">
-                    <img
-                      src={rv.thumbnail}
-                      alt={rv.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                      onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=V&background=1A1F2B&color=fff`; }}
-                    />
-                    {rv.duration && (
-                      <span className="absolute bottom-1 right-1 bg-black/80 text-white text-[10px] px-1.5 py-0.5 rounded font-medium">
-                        {rv.duration}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0 py-1">
-                    <h3 className="text-sm font-semibold text-white line-clamp-2 group-hover:text-cyan-300 transition-colors leading-snug">{rv.title}</h3>
-                    <p className="text-xs text-gray-400 mt-1">{rv.creator}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">{rv.views} views · {rv.timeAgo}</p>
-                  </div>
-                </Link>
-              ))
-            : <p className="text-gray-500 text-sm">No related videos found.</p>
-          }
+          <div className="flex flex-col gap-3">
+            {relatedVideos.length > 0
+              ? relatedVideos.map(rv => (
+                  <Link
+                    key={rv.id}
+                    to={`/watch/${rv.id}`}
+                    className="group flex gap-3 bg-[#151923] rounded-xl p-2 border border-white/5 hover:border-cyan-400/40 transition-colors"
+                  >
+                    <div className="relative w-40 aspect-video rounded-lg overflow-hidden shrink-0">
+                      <img
+                        src={rv.thumbnail}
+                        alt={rv.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                        onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=V&background=1A1F2B&color=fff`; }}
+                      />
+                      {rv.duration && (
+                        <span className="absolute bottom-1 right-1 bg-black/80 text-white text-[10px] px-1.5 py-0.5 rounded font-medium">
+                          {rv.duration}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0 py-1">
+                      <h3 className="text-sm font-semibold text-white line-clamp-2 group-hover:text-cyan-300 transition-colors leading-snug">{rv.title}</h3>
+                      <p className="text-xs text-gray-400 mt-1">{rv.creator}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">{rv.views} views · {rv.timeAgo}</p>
+                    </div>
+                  </Link>
+                ))
+              : <p className="text-gray-500 text-sm">No related videos found.</p>
+            }
+          </div>
         </aside>
       </div>
     </div>

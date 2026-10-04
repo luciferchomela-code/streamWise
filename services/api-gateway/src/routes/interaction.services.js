@@ -10,10 +10,16 @@ const VIDEO_METADATA_SERVICE_URL =
 
 const proxy = createProxy(VIDEO_METADATA_SERVICE_URL, "Interaction service");
 
+// History & Continue Watching
+router.get("/history", isAuth, proxy);
+router.get("/continue-watching", isAuth, proxy);
+
 // Watch Later
 router.get("/watch-later", isAuth, proxy);
 router.post("/:videoId/watch-later", isAuth, proxy);
-router.get("/:videoId/watch-later/status", isAuth, proxy);
+
+// Video interaction status (liked, disliked, watchLater, lastPosition)
+router.get("/:videoId/status", isAuth, proxy);
 
 // Public / Guest Allowed
 router.get("/:videoId/comments", optionalAuth, proxy);

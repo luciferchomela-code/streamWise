@@ -5,6 +5,7 @@ import videoRoutes from "./routes/video.routes.js";
 import channelRoutes from "./routes/channel.routes.js";
 import interactionRoutes from "./routes/interaction.routes.js";
 import connectDB from "../shared/config/db.js";
+import "../shared/models/user.model.js";
 
 dotenv.config();
 const app = express();

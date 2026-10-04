@@ -26,6 +26,10 @@ const videoSchema = new Schema(
       default: [],
       index: true,
     },
+    category: {
+      type: String,
+      default: "General",
+    },
     thumbnailUrl: {
       type: String,
       default: null,

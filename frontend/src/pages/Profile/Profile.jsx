@@ -1,30 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { Sidebar } from '../../components/layout/Sidebar/Sidebar';
 import { BottomNav } from '../../components/layout/BottomNav/BottomNav';
 import { useAuth } from '../../hooks/useAuth';
 import { VideoCard } from '../../components/home/VideoCard/VideoCard';
+import { interactionService } from '../../services/interactionService';
 
-const continueWatching = [
-  {
-    id: 1,
-    title: 'Advanced React Patterns',
-    creator: 'Frontend Masters',
-    duration: '22:10',
-    progress: 60,
-    thumbnail: 'https://images.unsplash.com/photo-1555099962-4199c345e5dd?q=80&w=2070&auto=format&fit=crop'
-  },
-  {
-    id: 2,
-    title: 'The Art of Color in Cinema',
-    creator: 'Visual Arts',
-    duration: '14:30',
-    progress: 85,
-    thumbnail: 'https://images.unsplash.com/photo-1535016120720-40c7467d5283?q=80&w=2070&auto=format&fit=crop'
-  }
-];
-
-const recentlySaved = [];
 
 export const Profile = () => {
   const { user, logout } = useAuth();
@@ -33,6 +14,24 @@ export const Profile = () => {
   const [topics, setTopics] = useState(['Technology', 'Design', 'Cinematography']);
   const [recommendationsEnabled, setRecommendationsEnabled] = useState(true);
   const [autoplayEnabled, setAutoplayEnabled] = useState(false);
+
+  // Real data
+  const [continueWatching, setContinueWatching] = useState([]);
+  const [watchLaterVideos, setWatchLaterVideos] = useState([]);
+  const [watchHistory, setWatchHistory] = useState([]);
+
+  useEffect(() => {
+    if (!user) return;
+    interactionService.getContinueWatching()
+      .then(res => setContinueWatching(res.continueWatching || []))
+      .catch(() => {});
+    interactionService.getWatchLater(1, 6)
+      .then(res => setWatchLaterVideos(res.videos || []))
+      .catch(() => {});
+    interactionService.getHistory(1, 6)
+      .then(res => setWatchHistory(res.history || []))
+      .catch(() => {});
+  }, [user]);
 
   // Fallback for demo purposes if not logged in
   const displayUser = user || {
@@ -98,47 +97,69 @@ export const Profile = () => {
                 </h3>
                 {continueWatching.length > 0 ? (
                   <div className="flex overflow-x-auto no-scrollbar gap-4 sm:gap-6 pb-4 -mx-4 px-4 sm:mx-0 sm:px-0">
-                    {continueWatching.map(video => (
-                      <div key={video.id} className="min-w-[80vw] sm:min-w-[300px] md:min-w-[320px] flex flex-col gap-3 group cursor-pointer focus-within:ring-2 focus-within:ring-cyan-400/50 rounded-xl outline-none">
-                        <div className="relative aspect-video rounded-xl overflow-hidden bg-[#151923]">
-                          <img src={video.thumbnail} alt={video.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                          <div className="absolute bottom-2 right-2 bg-black/80 px-1.5 py-0.5 rounded text-xs font-medium text-white border border-white/10">{video.duration}</div>
-                          <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/20">
-                            <div className="h-full bg-gradient-to-r from-violet-500 to-cyan-400" style={{ width: `${video.progress}%` }} />
+                    {continueWatching.map(video => {
+                      const id = video._id || video.id;
+                      const pct = video.watchPercentage || 0;
+                      const chName = typeof video.channelId === 'object' ? video.channelId?.name : null;
+                      return (
+                        <Link key={id} to={`/watch/${id}`} className="min-w-[80vw] sm:min-w-[300px] md:min-w-[320px] flex flex-col gap-3 group cursor-pointer rounded-xl outline-none">
+                          <div className="relative aspect-video rounded-xl overflow-hidden bg-[#151923]">
+                            <img src={video.thumbnailUrl || `https://ui-avatars.com/api/?name=V&background=1A1F2B&color=fff`} alt={video.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                              onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=V&background=1A1F2B&color=fff`; }}
+                            />
+                            <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-white/20">
+                              <div className="h-full bg-gradient-to-r from-violet-500 to-cyan-400" style={{ width: `${Math.min(pct, 100)}%` }} />
+                            </div>
                           </div>
-                        </div>
-                        <div>
-                          <h4 className="text-white font-semibold line-clamp-1 group-hover:text-cyan-300 transition-colors">{video.title}</h4>
-                          <p className="text-gray-400 text-sm">{video.creator}</p>
-                        </div>
-                      </div>
-                    ))}
+                          <div>
+                            <h4 className="text-white font-semibold line-clamp-1 group-hover:text-cyan-300 transition-colors">{video.title}</h4>
+                            <p className="text-gray-400 text-sm">{video.creator || chName || 'Channel'}</p>
+                            <p className="text-violet-400 text-xs mt-0.5 font-medium">{Math.round(pct)}% watched</p>
+                          </div>
+                        </Link>
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="bg-[#151923] border border-white/5 rounded-2xl p-8 text-center flex flex-col items-center justify-center">
                     <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center mb-3">
                       <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                     </div>
-                    <p className="text-gray-400">No watch history yet.</p>
+                    <p className="text-gray-400">No unfinished videos. Keep watching!</p>
                   </div>
                 )}
               </section>
 
-              {/* Recently Saved Row */}
+              {/* Watch Later Row */}
               <section>
                 <div className="flex items-center justify-between mb-6">
                   <h3 className="text-xl font-bold flex items-center gap-2">
                     <svg className="w-5 h-5 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
                     </svg>
-                    Recently Saved
+                    Watch Later
                   </h3>
-                  <a href="#" className="text-cyan-400 hover:text-cyan-300 text-sm font-medium transition-colors">View all</a>
+                  <Link to="/watch-later" className="text-cyan-400 hover:text-cyan-300 text-sm font-medium transition-colors">View all</Link>
                 </div>
-                
-                {recentlySaved.length > 0 ? (
+                {watchLaterVideos.length > 0 ? (
                   <div className="flex overflow-x-auto no-scrollbar gap-4 sm:gap-6 pb-4 -mx-4 px-4 sm:mx-0 sm:px-0">
-                    {/* Render saved videos here if any */}
+                    {watchLaterVideos.map(video => {
+                      const id = video._id || video.id;
+                      const chName = typeof video.channelId === 'object' ? video.channelId?.name : null;
+                      return (
+                        <Link key={id} to={`/watch/${id}`} className="min-w-[80vw] sm:min-w-[260px] md:min-w-[280px] flex flex-col gap-3 group cursor-pointer rounded-xl outline-none">
+                          <div className="relative aspect-video rounded-xl overflow-hidden bg-[#151923]">
+                            <img src={video.thumbnailUrl || `https://ui-avatars.com/api/?name=V&background=1A1F2B&color=fff`} alt={video.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                              onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=V&background=1A1F2B&color=fff`; }}
+                            />
+                          </div>
+                          <div>
+                            <h4 className="text-white font-semibold line-clamp-2 group-hover:text-cyan-300 transition-colors text-sm leading-snug">{video.title}</h4>
+                            <p className="text-gray-400 text-xs mt-0.5">{video.creator || chName || 'Channel'}</p>
+                          </div>
+                        </Link>
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="bg-[#151923] border border-white/5 rounded-2xl p-10 text-center flex flex-col items-center justify-center shadow-inner">
@@ -147,8 +168,64 @@ export const Profile = () => {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
                       </svg>
                     </div>
-                    <h4 className="text-white font-semibold mb-1">Your library is empty</h4>
+                    <h4 className="text-white font-semibold mb-1">Your Watch Later is empty</h4>
                     <p className="text-gray-400 text-sm max-w-sm">Save videos to watch them later or build your personalized collection.</p>
+                    <Link to="/" className="mt-4 px-5 py-2 bg-gradient-to-r from-violet-500 to-cyan-500 text-white text-sm font-medium rounded-full hover:opacity-90 transition-opacity">Browse Videos</Link>
+                  </div>
+                )}
+              </section>
+
+              {/* Watch History Row */}
+              <section>
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xl font-bold flex items-center gap-2">
+                    <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Watch History
+                  </h3>
+                  <Link to="/history" className="text-cyan-400 hover:text-cyan-300 text-sm font-medium transition-colors">View all</Link>
+                </div>
+                {watchHistory.length > 0 ? (
+                  <div className="flex overflow-x-auto no-scrollbar gap-4 sm:gap-6 pb-4 -mx-4 px-4 sm:mx-0 sm:px-0">
+                    {watchHistory.map(video => {
+                      const id = video._id || video.id;
+                      const chName = typeof video.channelId === 'object' ? video.channelId?.name : null;
+                      return (
+                        <Link key={id} to={`/watch/${id}`} className="min-w-[80vw] sm:min-w-[260px] md:min-w-[280px] flex flex-col gap-3 group cursor-pointer rounded-xl outline-none">
+                          <div className="relative aspect-video rounded-xl overflow-hidden bg-[#151923]">
+                            <img src={video.thumbnailUrl || `https://ui-avatars.com/api/?name=V&background=1A1F2B&color=fff`} alt={video.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                              onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=V&background=1A1F2B&color=fff`; }}
+                            />
+                            {video.watchPercentage > 0 && (
+                               <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-white/20">
+                                 <div className="h-full bg-red-500" style={{ width: `${Math.min(video.watchPercentage, 100)}%` }} />
+                               </div>
+                            )}
+                          </div>
+                          <div>
+                            <h4 className="text-white font-semibold line-clamp-2 group-hover:text-cyan-300 transition-colors text-sm leading-snug">{video.title}</h4>
+                            <p className="text-gray-400 text-xs mt-0.5">{video.creator || chName || 'Channel'}</p>
+                            {video.lastViewedAt && (
+                                <p className="text-gray-500 text-[10px] mt-1">
+                                  {new Date(video.lastViewedAt).toLocaleDateString()}
+                                </p>
+                            )}
+                          </div>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="bg-[#151923] border border-white/5 rounded-2xl p-10 text-center flex flex-col items-center justify-center shadow-inner">
+                    <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4 border border-white/5">
+                      <svg className="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <h4 className="text-white font-semibold mb-1">Your watch history is empty</h4>
+                    <p className="text-gray-400 text-sm max-w-sm">Videos you watch will show up here.</p>
+                    <Link to="/" className="mt-4 px-5 py-2 bg-gradient-to-r from-violet-500 to-cyan-500 text-white text-sm font-medium rounded-full hover:opacity-90 transition-opacity">Browse Videos</Link>
                   </div>
                 )}
               </section>

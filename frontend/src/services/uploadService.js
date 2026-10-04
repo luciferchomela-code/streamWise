@@ -1,18 +1,9 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-
-const getHeaders = () => {
-  const token = localStorage.getItem('accessToken');
-  const headers = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  return headers;
-};
+import { apiFetch, API_BASE_URL } from './apiFetch';
 
 export const uploadService = {
   // Fetch image signature
   getImageSignature: async (type = 'thumbnail') => {
-    const res = await fetch(`${API_BASE_URL}/upload/image/signature?type=${type}`, {
-      headers: getHeaders()
-    });
+    const res = await apiFetch(`${API_BASE_URL}/upload/image/signature?type=${type}`);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.message || 'Failed to get image signature');
     return data;
@@ -20,9 +11,7 @@ export const uploadService = {
 
   // Fetch video signature
   getVideoSignature: async (videoId) => {
-    const res = await fetch(`${API_BASE_URL}/upload/video/signature?videoId=${videoId}`, {
-      headers: getHeaders()
-    });
+    const res = await apiFetch(`${API_BASE_URL}/upload/video/signature?videoId=${videoId}`);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.message || 'Failed to get video signature');
     return data;
@@ -30,7 +19,7 @@ export const uploadService = {
 
   // Upload to Cloudinary using signature
   uploadToCloudinary: async (file, signatureData, onProgress) => {
-    const { signature, timestamp, apiKey, cloudName, folder } = signatureData;
+    const { signature, timestamp, apiKey, cloudName, folder, publicId, eager, eagerAsync } = signatureData;
     
     const formData = new FormData();
     formData.append('file', file);
@@ -38,6 +27,11 @@ export const uploadService = {
     formData.append('timestamp', timestamp);
     formData.append('signature', signature);
     formData.append('folder', folder);
+
+    // These MUST be included if they were part of the signed params
+    if (publicId) formData.append('public_id', publicId);
+    if (eager) formData.append('eager', eager);
+    if (eagerAsync !== undefined) formData.append('eager_async', eagerAsync ? 'true' : 'false');
     
     // Determine resource type (image or video) based on file type
     const resourceType = file.type.startsWith('video/') ? 'video' : 'image';

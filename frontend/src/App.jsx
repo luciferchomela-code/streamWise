@@ -6,7 +6,7 @@ import './index.css';
 
 import { AuthProvider } from './hooks/useAuth';
 
-const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || '21441959275-0bojkheugd6qvsikdmm2r45gtvvpld46.apps.googleusercontent.com';
+const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
 const App = () => {
   return (
