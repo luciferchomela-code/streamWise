@@ -42,8 +42,14 @@ export const useVideoUpload = () => {
         (pct) => setProgress(pct)
       );
 
+      // Extract Cloudinary HLS URL from eager transformations if available
+      const eagerHls = Array.isArray(cloudinaryResponse.eager)
+        ? cloudinaryResponse.eager.find(item => item.format === 'm3u8' || item.url?.includes('m3u8'))?.secure_url
+        : null;
+
       return {
         videoUrl: cloudinaryResponse.secure_url,
+        hlsUrl: eagerHls || null,
         publicId: cloudinaryResponse.public_id,
         duration: cloudinaryResponse.duration || 0,
       };

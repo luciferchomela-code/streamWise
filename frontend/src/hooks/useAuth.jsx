@@ -9,25 +9,31 @@ export const AuthProvider = ({ children }) => {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    // Check if logged in on mount
+    // Check if logged in on mount via httpOnly cookie session
     const initAuth = async () => {
       try {
-        const token = localStorage.getItem('accessToken');
-        const refreshToken = localStorage.getItem('refreshToken');
-        
-        if (token || refreshToken) {
-          const profile = await authService.getProfile();
-          if (profile && profile.user) {
-            setUser(profile.user);
-          }
+        const profile = await authService.getProfile();
+        if (profile && profile.user) {
+          setUser(profile.user);
+        } else {
+          setUser(null);
         }
       } catch (err) {
-        console.error('Failed to restore session:', err);
+        setUser(null);
       } finally {
         setLoading(false);
       }
     };
     initAuth();
+
+    const handleSessionExpired = () => {
+      setUser(null);
+    };
+    window.addEventListener('streamwise:session-expired', handleSessionExpired);
+
+    return () => {
+      window.removeEventListener('streamwise:session-expired', handleSessionExpired);
+    };
   }, []);
 
   const loginWithGoogleCode = async (code) => {

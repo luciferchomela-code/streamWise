@@ -1,7 +1,9 @@
 
 
+import crypto from "crypto";
 import { cloudinary, ensureCloudinaryConfig } from "../config/cloudinary.js";
 import { fetchVideoDoc } from "../utils/fetchVideoDoc.js";
+import { createGatewaySignature } from "../utils/gatewaySignature.js";
 
 const SIGNED_URL_TTL_SECONDS = 60 * 60; 
 const VIDEO_METADATA_INTERNAL_URL =
@@ -14,9 +16,9 @@ const buildSignedUrl = (publicId) => {
 
   return cloudinary.url(publicId, {
     resource_type: "video",
-    type: "upload",          // use "authenticated" if you upload as private on Cloudinary
-    streaming_profile: "hd", // Request the Adaptive Bitrate profile
-    format: "m3u8",          // Request the HLS playlist format
+    type: "upload",
+    streaming_profile: "auto",
+    format: "m3u8",
     secure: true,
     sign_url: true,
     expires_at: expiresAt,
@@ -25,7 +27,15 @@ const buildSignedUrl = (publicId) => {
 
 const incrementViewCount = (videoId, userId) => {
   const headers = { "Content-Type": "application/json" };
-  if (userId) headers["x-user-id"] = userId;
+  if (userId) {
+    const timestamp = Date.now();
+    const requestId = crypto.randomUUID();
+    const signature = createGatewaySignature({ userId, requestId, timestamp });
+    headers["x-user-id"] = userId;
+    headers["x-request-id"] = requestId;
+    headers["x-gateway-timestamp"] = timestamp.toString();
+    headers["x-gateway-signature"] = signature;
+  }
 
   fetch(`${VIDEO_METADATA_INTERNAL_URL}/api/interactions/view/${videoId}`, {
     method: "POST",
@@ -38,7 +48,7 @@ const incrementViewCount = (videoId, userId) => {
 export const streamVideo = async (req, res, next) => {
   try {
     const { videoId } = req.params;
-    const userId = req.headers["x-user-id"] || null;
+    const userId = req.auth?.userId || null;
     const video = await fetchVideoDoc(videoId, userId);
 
     if (!video.videoUrl || video.status !== "ready") {
@@ -56,7 +66,7 @@ export const streamVideo = async (req, res, next) => {
       ensureCloudinaryConfig();
       streamUrl = cloudinary.url(video.publicId, {
         resource_type: "video",
-        streaming_profile: "hd",
+        streaming_profile: "auto",
         format: "m3u8",
         secure: true
       });

@@ -7,11 +7,25 @@ import {
   getCacheNamespaceVersion,
   getOrSetJsonCache,
   invalidateCacheNamespace,
+  deleteCache,
+  deleteCacheByPrefix,
 } from "../utils/redisCache.js";
 
 const GLOBAL_VIDEO_FEED_CACHE = "global-video-feeds";
-const TRENDING_CACHE_TTL_SECONDS = 30;
+// Raised from 30s → 300s. Trending changes slowly; hammering DB every 30s is wasteful.
+const TRENDING_CACHE_TTL_SECONDS = 300;
 const POPULAR_CACHE_TTL_SECONDS = 120;
+const VIDEO_CACHE_TTL_SECONDS = 60;       // individual video pages
+const CHANNEL_VIDEOS_CACHE_TTL = 60;      // channel video lists
+const SEARCH_CACHE_TTL_SECONDS = 30;      // search results (acceptable short stale window)
+
+// Cache key helpers — centralised so invalidation always matches the read key exactly
+const videoKey = (videoId) => `streamwise:video:${videoId}`;
+const channelVideosPrefix = (channelId) => `streamwise:channel-videos:${channelId}:`;
+const channelVideoKey = (channelId, page, limit) =>
+  `${channelVideosPrefix(channelId)}page:${page}:limit:${limit}`;
+const searchKey = (q, page, limit) =>
+  `streamwise:search:${encodeURIComponent(q)}:page:${page}:limit:${limit}`;
 
 const getCachedGlobalVideoFeed = async ({ feed, page, limit, ttlSeconds, loader }) => {
   const version = await getCacheNamespaceVersion(GLOBAL_VIDEO_FEED_CACHE);
@@ -54,7 +68,7 @@ export const createDraft = asyncHandler(async (req, res) => {
  */
 export const finalizeVideo = asyncHandler(async (req, res) => {
   const { videoId } = req.params;
-  const { videoUrl, duration, publicId } = req.body;
+  const { videoUrl, hlsUrl, duration, publicId } = req.body;
 
   if (!videoUrl || !publicId) {
     return res.status(400).json({ message: "videoUrl and publicId are required." });
@@ -74,12 +88,28 @@ export const finalizeVideo = asyncHandler(async (req, res) => {
     return res.status(403).json({ message: "Forbidden: you do not own this video." });
   }
 
+  // Derive Cloudinary HLS URL if not explicitly provided
+  let finalHlsUrl = hlsUrl;
+  if (!finalHlsUrl && videoUrl.includes("res.cloudinary.com")) {
+    finalHlsUrl = videoUrl
+      .replace(/\/video\/upload\/(?:(?:sp|q|f)_[^/]+\/)?/, "/video/upload/sp_auto/")
+      .replace(/\.[a-zA-Z0-9]+(?:\?.*)?$/, ".m3u8");
+  }
+
   video.videoUrl = videoUrl;
+  video.hlsUrl = finalHlsUrl || null;
   video.publicId = publicId;
   video.duration = duration ? Math.round(duration) : null;
   video.status = "ready";
   await video.save();
-  await invalidateCacheNamespace(GLOBAL_VIDEO_FEED_CACHE);
+
+  // Invalidate global trending/popular feed (version bump) + this video's own key
+  // + the channel's paginated video list so the new video appears immediately.
+  await Promise.all([
+    invalidateCacheNamespace(GLOBAL_VIDEO_FEED_CACHE),
+    deleteCache(videoKey(videoId)),
+    deleteCacheByPrefix(channelVideosPrefix(video.channelId.toString())),
+  ]);
 
   void publishEvent("video.finalized", {
     videoId: video._id.toString(),
@@ -106,21 +136,29 @@ export const channelVideos = asyncHandler(async (req, res) => {
     return res.status(404).json({ message: "Channel not found." });
   }
 
-  const queryFilter = {
-    channelId: channel._id,
-  };
-
-  const [videos, totalVideos] = await Promise.all([
-    Video.find(queryFilter).sort({ createdAt: -1 }).skip(skip).limit(limit),
-    Video.countDocuments(queryFilter),
-  ]);
-
-  res.status(200).json({
-    success: true,
-    page,
-    totalPages: Math.ceil(totalVideos / limit),
-    videos,
+  // Cache the video list per channel+page+limit.
+  // Dirty read prevention: this key is deleted (via deleteCacheByPrefix) whenever
+  // the channel uploads a new video or deletes one, so stale lists never persist.
+  const { value, cacheStatus } = await getOrSetJsonCache({
+    key: channelVideoKey(channelId, page, limit),
+    ttlSeconds: CHANNEL_VIDEOS_CACHE_TTL,
+    loader: async () => {
+      const queryFilter = { channelId: channel._id };
+      const [videos, totalVideos] = await Promise.all([
+        Video.find(queryFilter).sort({ createdAt: -1 }).skip(skip).limit(limit),
+        Video.countDocuments(queryFilter),
+      ]);
+      return {
+        success: true,
+        page,
+        totalPages: Math.ceil(totalVideos / limit),
+        videos,
+      };
+    },
   });
+
+  res.set("X-Cache", cacheStatus);
+  res.status(200).json(value);
 });
 
 export const deleteVideo = asyncHandler(async (req, res) => {
@@ -168,7 +206,16 @@ export const deleteVideo = asyncHandler(async (req, res) => {
 
   // Step 3: Delete the video document
   await video.deleteOne();
-  await invalidateCacheNamespace(GLOBAL_VIDEO_FEED_CACHE);
+
+  // Invalidate all affected caches together:
+  // - Global feeds (trending / popular) via version bump
+  // - This video's individual cache key (write-through, prevents dirty reads)
+  // - The channel's paginated video list (all pages) via prefix scan
+  await Promise.all([
+    invalidateCacheNamespace(GLOBAL_VIDEO_FEED_CACHE),
+    deleteCache(videoKey(videoId)),
+    deleteCacheByPrefix(channelVideosPrefix(video.channelId.toString())),
+  ]);
 
   res.status(200).json({
     success: true,
@@ -250,7 +297,18 @@ export const getVideoById = asyncHandler(async (req, res) => {
   const { videoId } = req.params;
   const userId = req.auth ? req.auth.userId : null;
 
-  const video = await Video.findById(videoId).populate("channelId");
+  // Private/draft videos must never be cached — we'd risk serving restricted content
+  // to unauthorized users from cache. Only cache public, ready videos.
+  // Cache key: "streamwise:video:VIDEO_ID" — deleted immediately when the video is edited/deleted.
+  const { value: video, cacheStatus } = await getOrSetJsonCache({
+    key: videoKey(videoId),
+    ttlSeconds: VIDEO_CACHE_TTL_SECONDS,
+    loader: async () => {
+      const v = await Video.findById(videoId).populate("channelId");
+      return v ? v.toObject() : null;
+    },
+  });
+
   if (!video) {
     return res.status(404).json({ message: "Video not found." });
   }
@@ -258,17 +316,20 @@ export const getVideoById = asyncHandler(async (req, res) => {
   const isRestricted = video.status === "draft" || video.visibility === "private";
 
   if (isRestricted) {
+    // Do NOT serve cached data for restricted videos — bypass cache result
+    // and force a fresh DB read to apply proper auth checks.
     if (!userId) {
       return res.status(401).json({ message: "Authentication required for private/draft videos." });
     }
-
-    // Safely check if the authenticated user is the channel owner
-    const isOwner = video.channelId && video.channelId.ownerId.toString() === userId;
+    const isOwner =
+      video.channelId && video.channelId.ownerId &&
+      video.channelId.ownerId.toString() === userId;
     if (!isOwner) {
       return res.status(403).json({ message: "Access restricted to channel owner." });
     }
   }
 
+  res.set("X-Cache", cacheStatus);
   res.status(200).json({
     success: true,
     video,
@@ -284,24 +345,36 @@ export const searchVideos = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "Query is required." });
   }
 
-  const queryFilter = {
-    $text: { $search: q },
-    visibility: "public",
-    status: { $in: ["ready", "published"] },
-  };
-
-  const [videos, totalVideos] = await Promise.all([
-    Video.find(queryFilter, { score: { $meta: "textScore" } })
-      .sort({ score: { $meta: "textScore" } })
-      .skip(skip)
-      .limit(limit),
-    Video.countDocuments(queryFilter),
-  ]);
-
-  res.status(200).json({
-    success: true,
-    page,
-    totalPages: Math.ceil(totalVideos / limit),
-    videos,
+  // Cache search results by query string + pagination.
+  // Strategy: TTL-only (30s). If a new video is uploaded that matches this query,
+  // the user may see stale results for up to 30 seconds — acceptable trade-off
+  // since MongoDB full-text search ($text) is expensive and search results
+  // don't need to be real-time.
+  const { value, cacheStatus } = await getOrSetJsonCache({
+    key: searchKey(q, page, limit),
+    ttlSeconds: SEARCH_CACHE_TTL_SECONDS,
+    loader: async () => {
+      const queryFilter = {
+        $text: { $search: q },
+        visibility: "public",
+        status: { $in: ["ready", "published"] },
+      };
+      const [videos, totalVideos] = await Promise.all([
+        Video.find(queryFilter, { score: { $meta: "textScore" } })
+          .sort({ score: { $meta: "textScore" } })
+          .skip(skip)
+          .limit(limit),
+        Video.countDocuments(queryFilter),
+      ]);
+      return {
+        success: true,
+        page,
+        totalPages: Math.ceil(totalVideos / limit),
+        videos,
+      };
+    },
   });
+
+  res.set("X-Cache", cacheStatus);
+  res.status(200).json(value);
 });

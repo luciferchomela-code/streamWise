@@ -327,8 +327,8 @@ export default function WatchVideo() {
               videoId={videoId}
               title={video.title}
               thumbnailUrl={video.thumbnail}
-              hlsUrl={video.videoUrl.includes('m3u8') ? video.videoUrl : null}
-              mp4Url={!video.videoUrl.includes('m3u8') ? video.videoUrl : null}
+              hlsUrl={video.hlsUrl || (video.videoUrl.includes('m3u8') ? video.videoUrl : null)}
+              mp4Url={video.mp4Url || (!video.videoUrl.includes('m3u8') ? video.videoUrl : null)}
               duration={video.duration}
               startPosition={startPosition}
             />

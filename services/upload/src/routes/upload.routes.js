@@ -8,20 +8,20 @@ import {
   deleteVideo,
 } from "../controllers/videoupload.controller.js";
 import { streamVideo } from "../controllers/stream.controller.js";
+import { requireGatewayIdentity } from "../middlewares/requireGatewayIdentity.js";
+import { optionalGatewayIdentity } from "../middlewares/optionalGatewayIdentity.js";
 
 const router = express.Router();
 
-router.get("/image/signature", getImageSignature);
-router.delete("/image", deleteImage);
+router.get("/image/signature", requireGatewayIdentity, getImageSignature);
+router.delete("/image", requireGatewayIdentity, deleteImage);
 
-router.get("/video/signature", getVideoSignature);
-router.delete("/video", deleteVideo);
+router.get("/video/signature", requireGatewayIdentity, getVideoSignature);
+router.delete("/video", requireGatewayIdentity, deleteVideo);
 
 // ─── Stream Route ─────────────────────────────────────────────────────────────
 // GET /api/stream/:videoId
-// Public endpoint — auth forwarded via x-user-id header for private video checks.
-// 302 redirects to Cloudinary CDN — Node.js never touches a single video byte.
-router.get("/stream/:videoId", streamVideo);
+// Public endpoint with optional gateway identity verification for private video checks.
+router.get("/stream/:videoId", optionalGatewayIdentity, streamVideo);
 
 export default router;
-

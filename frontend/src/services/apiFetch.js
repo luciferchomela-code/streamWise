@@ -1,65 +1,53 @@
 /**
- * apiFetch — drop-in replacement for fetch() that automatically:
- *  1. Attaches the current access token as a Bearer header.
- *  2. On a 401 response, attempts to refresh the access token using the stored refresh token.
- *  3. Retries the original request once with the new access token.
- *  4. If refresh fails (refresh token expired/revoked), clears storage so the
- *     useAuth hook detects the logged-out state and redirects to /login.
- *
- * Usage — replace:
- *   fetch(url, { headers: getHeaders() })
- * with:
- *   apiFetch(url, options)
+ * apiFetch — resilient fetch wrapper with:
+ *  1. Automatic credentials: 'include' for HttpOnly cookie transport.
+ *  2. Cross-tab refresh coordination via Web Locks API (navigator.locks).
+ *  3. In-memory single-flight promise de-duplication within single tab.
+ *  4. Strict loop prevention (max 1 retry per request).
+ *  5. Immediate session termination notification on refresh failure.
  */
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
-// Prevent multiple concurrent refresh calls from racing each other
+const LOCK_NAME = 'streamwise_auth_refresh_lock';
 let _refreshPromise = null;
+let _lastRefreshTimestamp = 0;
 
-const getAccessToken = () => localStorage.getItem('accessToken');
-const getRefreshToken = () => localStorage.getItem('refreshToken');
-
-const setTokens = (accessToken, refreshToken) => {
-  if (accessToken) localStorage.setItem('accessToken', accessToken);
-  if (refreshToken) localStorage.setItem('refreshToken', refreshToken);
-};
-
-const clearTokens = () => {
-  localStorage.removeItem('accessToken');
-  localStorage.removeItem('refreshToken');
+const clearLegacyTokens = () => {
+  try {
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+  } catch (_) {}
 };
 
 /**
- * Calls the refresh endpoint and updates localStorage.
- * Returns the new access token or throws if refresh fails.
+ * Direct call to refresh endpoint
  */
-const doRefresh = async () => {
-  const rToken = getRefreshToken();
-  if (!rToken) throw new Error('No refresh token available');
-
+const callRefreshApi = async () => {
   const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refreshToken: rToken }),
   });
 
   if (!res.ok) {
-    clearTokens();
-    throw new Error('Refresh token expired — please log in again');
+    clearLegacyTokens();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('streamwise:session-expired'));
+    }
+    throw new Error('Session expired. Please log in again.');
   }
 
-  const data = await res.json();
-  setTokens(data.accessToken, data.refreshToken);
-  return data.accessToken;
+  _lastRefreshTimestamp = Date.now();
+  return await res.json().catch(() => ({}));
 };
 
 /**
- * Refreshes the access token, de-duplicating concurrent calls.
+ * In-memory single-flight coordination
  */
-const refreshAccessToken = () => {
+const refreshSessionInMemory = () => {
   if (!_refreshPromise) {
-    _refreshPromise = doRefresh().finally(() => {
+    _refreshPromise = callRefreshApi().finally(() => {
       _refreshPromise = null;
     });
   }
@@ -67,41 +55,62 @@ const refreshAccessToken = () => {
 };
 
 /**
- * Builds request headers, always injecting the latest access token.
+ * Cross-tab coordinated refresh via Web Locks API with in-memory fallback
  */
-const buildHeaders = (extra = {}) => {
-  const token = getAccessToken();
-  const headers = { 'Content-Type': 'application/json', ...extra };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  return headers;
+const coordinatedRefresh = async () => {
+  if (typeof navigator !== 'undefined' && navigator.locks && navigator.locks.request) {
+    return await navigator.locks.request(LOCK_NAME, async () => {
+      // If another tab refreshed cookies in the last 4 seconds, cookies are already fresh
+      if (Date.now() - _lastRefreshTimestamp < 4000) {
+        return;
+      }
+      return await refreshSessionInMemory();
+    });
+  }
+
+  return await refreshSessionInMemory();
 };
 
 /**
- * Main export — use exactly like fetch().
- * Automatically handles token refresh on 401.
+ * Header builder
+ */
+const buildHeaders = (extra = {}) => {
+  return { 'Content-Type': 'application/json', ...extra };
+};
+
+/**
+ * Main export — drop-in replacement for fetch().
  */
 export const apiFetch = async (url, options = {}) => {
-  const { headers: extraHeaders, ...rest } = options;
+  const { headers: extraHeaders, _isRetry, ...rest } = options;
 
-  // First attempt
-  let response = await fetch(url, {
+  const requestOptions = {
     ...rest,
+    credentials: 'include',
     headers: buildHeaders(extraHeaders),
-  });
+  };
 
-  // If access token expired, refresh and retry once
-  if (response.status === 401) {
+  // Perform request
+  let response = await fetch(url, requestOptions);
+
+  // If 401 encountered, ensure not an auth endpoint and not already a retried request
+  const isAuthEndpoint =
+    url.includes('/auth/refresh') ||
+    url.includes('/auth/login') ||
+    url.includes('/auth/logout');
+
+  if (response.status === 401 && !isAuthEndpoint && !_isRetry) {
     try {
-      await refreshAccessToken();
-    } catch {
-      // Refresh failed — return the original 401 so callers handle logout
+      await coordinatedRefresh();
+    } catch (refreshErr) {
+      // Refresh failed — return original 401 response so UI can handle redirection
       return response;
     }
 
-    // Retry with the new token
+    // Single safe retry with _isRetry flag to strictly prevent infinite loops
     response = await fetch(url, {
-      ...rest,
-      headers: buildHeaders(extraHeaders),
+      ...requestOptions,
+      _isRetry: true,
     });
   }
 

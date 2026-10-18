@@ -77,6 +77,12 @@ export const VideoPlayer = ({
         if (data.fatal) {
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
+              if (mp4Url && (data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR || data.response?.code === 404)) {
+                console.warn('[VideoPlayer] HLS manifest not ready, falling back to MP4');
+                hls.destroy();
+                video.src = mp4Url;
+                break;
+              }
               hls.startLoad();
               break;
             case Hls.ErrorTypes.MEDIA_ERROR:

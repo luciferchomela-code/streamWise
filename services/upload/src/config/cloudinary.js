@@ -60,7 +60,7 @@ export const generateVideoSignature = (videoId) => {
   const folder = `streamwise/videos`;
   const publicId = `${folder}/${videoId}`; // deterministic — tied to MongoDB _id
 
-  const eager = "sp_hd/m3u8"; // Generates HLS streaming profile (1080p, 720p, 480p)
+  const eager = "sp_auto/m3u8"; // Generates HLS adaptive streaming profile (auto-scales 1080p, 720p, 480p, 360p)
   const eager_async = true;   // Do it in the background so upload finishes instantly
 
   const paramsToSign = { 

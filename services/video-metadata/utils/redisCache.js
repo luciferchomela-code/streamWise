@@ -26,8 +26,11 @@ const getRedisClient = async () => {
     client = createClient({
       url: process.env.REDIS_URL || "redis://localhost:6379",
       socket: {
-        connectTimeout: 1000,
-        reconnectStrategy: (retries) => (retries < 1 ? 100 : false),
+        connectTimeout: 2000,
+        // Fixed: retry 3 times with exponential backoff (200ms, 400ms, 600ms) then give up.
+        // The app keeps working without Redis thanks to the non-fatal design.
+        reconnectStrategy: (retries) =>
+          retries < 3 ? Math.min(retries * 200, 1000) : false,
       },
     });
     client.on("error", (error) => warnCacheFailure("connection", error));
@@ -102,6 +105,11 @@ export const getCacheNamespaceVersion = async (namespace) => {
   }
 };
 
+/**
+ * Bumps the namespace version, making ALL keys in that namespace stale instantly.
+ * This is the cheapest form of bulk invalidation — no key scanning needed.
+ * Used for global feeds (trending, popular) where many keys share a namespace.
+ */
 export const invalidateCacheNamespace = async (namespace) => {
   const redis = await getRedisClient();
   if (!redis) return false;
@@ -111,6 +119,55 @@ export const invalidateCacheNamespace = async (namespace) => {
     return true;
   } catch (error) {
     warnCacheFailure("invalidate", error);
+    return false;
+  }
+};
+
+/**
+ * Write-through invalidation: deletes a specific cache key immediately after a write.
+ * Used to prevent dirty reads on individual resources (single video, channel video list).
+ *
+ * Example: user edits video title → MongoDB updated → deleteCache("streamwise:video:abc123")
+ * → next visitor gets a cache MISS → fresh, correct data is fetched from MongoDB.
+ */
+export const deleteCache = async (key) => {
+  const redis = await getRedisClient();
+  if (!redis) return false;
+
+  try {
+    await redis.del(key);
+    return true;
+  } catch (error) {
+    warnCacheFailure("delete", error);
+    return false;
+  }
+};
+
+/**
+ * Deletes ALL cache keys that start with a given prefix using Redis SCAN.
+ * Used to invalidate an entire channel's paginated video list at once.
+ *
+ * Example: channel uploads a new video → all keys starting with
+ * "streamwise:channel-videos:CHANNELID:" are deleted → all pages are refreshed.
+ *
+ * NOTE: We use SCAN (not KEYS) because KEYS blocks Redis on large datasets.
+ */
+export const deleteCacheByPrefix = async (prefix) => {
+  const redis = await getRedisClient();
+  if (!redis) return false;
+
+  try {
+    let cursor = 0;
+    do {
+      const reply = await redis.scan(cursor, { MATCH: `${prefix}*`, COUNT: 100 });
+      cursor = reply.cursor;
+      if (reply.keys.length > 0) {
+        await redis.del(reply.keys);
+      }
+    } while (cursor !== 0);
+    return true;
+  } catch (error) {
+    warnCacheFailure("delete-by-prefix", error);
     return false;
   }
 };

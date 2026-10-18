@@ -34,25 +34,47 @@ const formatDuration = (seconds) => {
   return `${m}:${s}`;
 };
 
+/** Convert any Cloudinary video URL into an Adaptive HLS (.m3u8) master playlist URL */
+export const toCloudinaryHlsUrl = (videoUrl) => {
+  if (!videoUrl || typeof videoUrl !== 'string') return null;
+  if (videoUrl.includes('.m3u8')) return videoUrl;
+  if (videoUrl.includes('res.cloudinary.com')) {
+    return videoUrl
+      .replace(/\/video\/upload\/(?:(?:sp|q|f)_[^/]+\/)?/, '/video/upload/sp_auto/')
+      .replace(/\.[a-zA-Z0-9]+(?:\?.*)?$/, '.m3u8');
+  }
+  return null;
+};
+
 /** Normalize a raw DB video into the shape VideoCard expects */
-export const normalizeVideo = (v) => ({
-  id: v._id,
-  title: v.title || 'Untitled',
-  creator: v.channelId?.name || 'Unknown Channel',
-  channelId: v.channelId?._id || v.channelId,
-  channelImage: v.channelId?.image || null,
-  duration: formatDuration(v.duration),
-  views: formatViews(v.views),
-  viewsRaw: v.views || 0,
-  timeAgo: formatTimeAgo(v.createdAt),
-  thumbnail: v.thumbnailUrl || '',
-  videoUrl: v.videoUrl || '',
-  likes: v.likes || 0,
-  dislikes: v.dislikes || 0,
-  description: v.description || '',
-  status: v.status,
-  visibility: v.visibility,
-});
+export const normalizeVideo = (v) => {
+  const rawUrl = v.videoUrl || '';
+  const isDirectHls = rawUrl.includes('.m3u8');
+  const hls = v.hlsUrl || (isDirectHls ? rawUrl : toCloudinaryHlsUrl(rawUrl));
+  const mp4 = !isDirectHls ? rawUrl : null;
+
+  return {
+    id: v._id,
+    title: v.title || 'Untitled',
+    creator: v.channelId?.name || 'Unknown Channel',
+    channelId: v.channelId?._id || v.channelId,
+    channelImage: v.channelId?.image || null,
+    duration: formatDuration(v.duration),
+    views: formatViews(v.views),
+    viewsRaw: v.views || 0,
+    timeAgo: formatTimeAgo(v.createdAt),
+    thumbnail: v.thumbnailUrl || '',
+    videoUrl: rawUrl,
+    hlsUrl: hls,
+    mp4Url: mp4,
+    publicId: v.publicId || null,
+    likes: v.likes || 0,
+    dislikes: v.dislikes || 0,
+    description: v.description || '',
+    status: v.status,
+    visibility: v.visibility,
+  };
+};
 
 export const videoService = {
   getTrending: async ({ page = 1, limit = 12 } = {}) => {

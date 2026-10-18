@@ -13,11 +13,24 @@ import channelRoutes from "./src/routes/channel.services.js";
 import interactionRoutes from "./src/routes/interaction.services.js";
 import uploadRoutes from "./src/routes/upload.services.js";
 import streamRoutes from "./src/routes/stream.services.js";
+import { parseCookies } from "./src/middleware/parseCookies.js";
+import { csrfProtection } from "./src/middleware/csrfProtection.js";
 
 dotenv.config();
 
+if (process.env.NODE_ENV === "production") {
+  if (!process.env.JWT_SEC) {
+    throw new Error("FATAL: JWT_SEC must be configured in environment variables");
+  }
+  if (!process.env.GATEWAY_SECRET) {
+    throw new Error("FATAL: GATEWAY_SECRET must be configured in environment variables");
+  }
+}
+
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+app.use(parseCookies);
 
 const USE_REDIS = process.env.REDIS_URL || process.env.USE_REDIS === 'true';
 const redisClient = createClient({
@@ -28,6 +41,8 @@ if (USE_REDIS) {
   redisClient.on("error", (err) => console.error("Redis Client Error", err.message));
   redisClient.connect().catch(() => console.warn("Redis not connected, skipping caching."));
 }
+
+app.locals.redisClient = redisClient;
 
 app.use(helmet());
 app.use(
@@ -67,9 +82,12 @@ app.use((req, res, next) => {
   req.requestId = requestId;
   req.headers["x-request-id"] = requestId;
   res.setHeader("x-request-id", requestId);
-  
+
+  // Strip all identity and trust headers that clients must not control
   delete req.headers["x-user-id"];
   delete req.headers["x-user-email"];
+  delete req.headers["x-gateway-signature"];
+  delete req.headers["x-gateway-timestamp"];
 
   next();
 });
@@ -80,6 +98,9 @@ app.use((req, res, next) => {
 app.get("/health", (req, res) => {
   res.status(200).json({ status: "ok", service: "api-gateway", timestamp: new Date().toISOString(), requestId: req.requestId });
 });
+
+// Enforce CSRF Origin / Referer validation on state-changing requests
+app.use(csrfProtection);
 
 app.use("/api/auth", authRoutes);
 app.use("/api/videos", videoRoutes);

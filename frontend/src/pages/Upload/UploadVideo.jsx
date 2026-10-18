@@ -63,11 +63,11 @@ export default function UploadVideo() {
 
       // Step 2: Upload video to Cloudinary (useVideoUpload tracks its own progress)
       setStatusText('Uploading video…');
-      const { videoUrl, publicId, duration } = await uploadVideo(videoFile, videoId);
+      const { videoUrl, hlsUrl, publicId, duration } = await uploadVideo(videoFile, videoId);
 
       // Step 3: Finalize — mark the video as ready in the backend
       setStatusText('Finalizing…');
-      await videoService.finalizeVideo(videoId, { videoUrl, publicId, duration });
+      await videoService.finalizeVideo(videoId, { videoUrl, hlsUrl, publicId, duration });
 
       setStatusText('Upload complete! 🎉');
       setTimeout(() => navigate('/channel'), 1500);
@@ -299,9 +299,8 @@ export default function UploadVideo() {
                     </div>
                     <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden">
                       <div
-                        className={`h-full transition-all duration-300 ${
-                          videoUploading ? 'bg-cyan-400' : 'bg-violet-500 animate-pulse'
-                        }`}
+                        className={`h-full transition-all duration-300 ${videoUploading ? 'bg-cyan-400' : 'bg-violet-500 animate-pulse'
+                          }`}
                         style={{ width: videoUploading ? `${videoProgress}%` : '100%' }}
                       />
                     </div>

@@ -15,6 +15,12 @@ venv/
 !.env.example
 *.log
 
+# Markdown files (keep README.md only)
+*.md
+!README.md
+docs/**/*.md
+!docs/**/README.md
+
 # Editor and operating-system files
 .DS_Store
 Thumbs.db

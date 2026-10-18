@@ -10,6 +10,9 @@
  *   - Mockable in tests without touching controller logic
  */
 
+import crypto from "crypto";
+import { createGatewaySignature } from "./gatewaySignature.js";
+
 const VIDEO_METADATA_INTERNAL_URL =
   process.env.VIDEO_METADATA_INTERNAL_URL || "http://localhost:5002";
 
@@ -23,8 +26,16 @@ const VIDEO_METADATA_INTERNAL_URL =
 export const fetchVideoDoc = async (videoId, userId) => {
   const headers = { "Content-Type": "application/json" };
 
-  // Forward user identity for private-video access checks
-  if (userId) headers["x-user-id"] = userId;
+  // Forward user identity with internal trust signature for private-video access checks
+  if (userId) {
+    const timestamp = Date.now();
+    const requestId = crypto.randomUUID();
+    const signature = createGatewaySignature({ userId, requestId, timestamp });
+    headers["x-user-id"] = userId;
+    headers["x-request-id"] = requestId;
+    headers["x-gateway-timestamp"] = timestamp.toString();
+    headers["x-gateway-signature"] = signature;
+  }
 
   const res = await fetch(
     `${VIDEO_METADATA_INTERNAL_URL}/api/videos/${videoId}`,
