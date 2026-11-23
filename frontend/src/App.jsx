@@ -1,7 +1,7 @@
 import React from 'react';
 import { BrowserRouter } from 'react-router-dom';
 import { GoogleOAuthProvider } from '@react-oauth/google';
-import { AppRoutes } from './routes/AppRoutes';
+import ScreeningRoom from './cinema/ScreeningRoom';
 import './index.css';
 
 import { AuthProvider } from './hooks/useAuth';
@@ -13,7 +13,7 @@ const App = () => {
     <GoogleOAuthProvider clientId={googleClientId}>
       <AuthProvider>
         <BrowserRouter>
-          <AppRoutes />
+          <ScreeningRoom />
         </BrowserRouter>
       </AuthProvider>
     </GoogleOAuthProvider>

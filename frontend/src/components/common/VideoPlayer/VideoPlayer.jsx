@@ -1,7 +1,8 @@
 import { trackPlayback } from '../../../services/trackPlayback';
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import Hls from 'hls.js';
+import { featureRequest } from '../../../services/featuresService';
 import { interactionService } from '../../../services/interactionService';
+import { createPlaybackSession } from '../../../services/playbackTelemetry';
 
 const formatTime = (seconds) => {
   if (isNaN(seconds)) return '0:00';
@@ -14,18 +15,19 @@ const formatTime = (seconds) => {
 
 export const VideoPlayer = ({
   videoId,
-  signedIn,
   title,
   thumbnailUrl,
   hlsUrl,
   mp4Url,
   duration,
   startPosition = 0,
+  trackHistory = false,
+  storyboard = [],
 }) => {
   const videoRef = useRef(null);
   const containerRef = useRef(null);
   const hlsRef = useRef(null);
-
+  const telemetryRef = useRef(null);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
@@ -43,80 +45,122 @@ export const VideoPlayer = ({
   const [levels, setLevels] = useState([]);
   const [currentLevel, setCurrentLevel] = useState(-1);
 
+  const [captions, setCaptions] = useState([]);
+  const [captionLanguage, setCaptionLanguage] = useState('');
+  const [captionUrl, setCaptionUrl] = useState('');
+  const [captionError, setCaptionError] = useState('');
+  const captionTrackRef = useRef(null);
+  useEffect(() => {
+    if (!videoId) return;
+    const controller = new AbortController();
+    featureRequest(`/captions/${videoId}`, { signal: controller.signal })
+      .then((result) => setCaptions(result.captions)).catch(() => {});
+    return () => controller.abort();
+  }, [videoId, trackHistory]);
+  useEffect(() => {
+    setCaptionUrl('');
+    setCaptionError('');
+    if (!videoId || !captionLanguage) return;
+    const controller = new AbortController();
+    let url;
+    featureRequest(`/captions/${videoId}/${captionLanguage}`, { signal: controller.signal, text: true })
+      .then((text) => {
+        if (controller.signal.aborted) return;
+        url = URL.createObjectURL(new Blob([text], { type: 'text/vtt' }));
+        setCaptionUrl(url);
+      }).catch(() => { if (!controller.signal.aborted) setCaptionError('Captions could not load.'); });
+    return () => {
+      controller.abort();
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [videoId, captionLanguage]);
+  useEffect(() => {
+    const track = captionTrackRef.current?.track;
+    if (track) track.mode = 'showing';
+  }, [captionUrl]);
 
+  const [openMenu, setOpenMenu] = useState(null);
+  const [playbackAttempt, setPlaybackAttempt] = useState(0);
+  const [previewTime, setPreviewTime] = useState(null);
+  const preview = previewTime === null ? null : storyboard.findLast((frame) => frame.time <= previewTime);
 
-  // Initialization & HLS attachment
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-
+    let disposed = false;
+    let hls;
     const streamUrl = hlsUrl || mp4Url;
-    if (!streamUrl) {
-      setError('Video is unavailable');
-      return;
-    }
+    const isHls = Boolean(hlsUrl || streamUrl?.includes('.m3u8'));
+    const telemetry = createPlaybackSession(videoId, isHls ? 'hls' : 'mp4');
+    telemetryRef.current = telemetry;
 
-    if (Hls.isSupported() && streamUrl.includes('m3u8')) {
-      const hls = new Hls({
-        maxMaxBufferLength: 30, // Adaptive buffering
-      });
-      hlsRef.current = hls;
-
-      hls.loadSource(streamUrl);
-      hls.attachMedia(video);
-
-      hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
+    const clearEngine = () => {
+      if (!hls) return;
+      hls.destroy();
+      hlsRef.current = null;
+      hls = null;
+    };
+    const fallback = (code = 'stream_unavailable') => {
+      const resume = !video.paused;
+      clearEngine();
+      setLevels([]);
+      setCurrentLevel(-1);
+      if (mp4Url) {
+        if (isHls) telemetry?.fallback(code);
+        telemetry?.source('mp4', 'native');
+        video.src = mp4Url;
+        if (resume) void video.play().catch(() => {});
+      }
+      else {
+        telemetry?.error(code);
         setIsBuffering(false);
-        setLevels(data.levels || []);
-        setCurrentLevel(hls.currentLevel);
-      });
-
-      hls.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
-        setCurrentLevel(data.level);
-      });
-
-      hls.on(Hls.Events.ERROR, (event, data) => {
-        if (data.fatal) {
-          switch (data.type) {
-            case Hls.ErrorTypes.NETWORK_ERROR:
-              if (mp4Url && (data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR || data.response?.code === 404)) {
-                console.warn('[VideoPlayer] HLS manifest not ready, falling back to MP4');
-                hls.destroy();
-                video.src = mp4Url;
-                break;
-              }
-              hls.startLoad();
-              break;
-            case Hls.ErrorTypes.MEDIA_ERROR:
-              hls.recoverMediaError();
-              break;
-            default:
-              hls.destroy();
-              if (mp4Url) {
-                // Fallback to MP4
-                video.src = mp4Url;
-              } else {
-                setError('Failed to load video stream');
-              }
-              break;
-          }
-        }
-      });
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      // Safari Native HLS
-      video.src = streamUrl;
-    } else if (mp4Url) {
-      video.src = mp4Url;
-    } else {
-      setError('Your browser does not support this video format.');
-    }
-
-    return () => {
-      if (hlsRef.current) {
-        hlsRef.current.destroy();
+        setError('Failed to load video stream.');
       }
     };
-  }, [hlsUrl, mp4Url]);
+
+    setOpenMenu(null);
+    setLevels([]);
+    setCurrentLevel(-1);
+    if (isHls) {
+      void import('hls.js/light').then(({ default: Hls }) => {
+        if (disposed) return;
+        if (!Hls.isSupported()) {
+          if (video.canPlayType('application/vnd.apple.mpegurl')) video.src = streamUrl;
+          else fallback();
+          return;
+        }
+        hls = new Hls({ maxMaxBufferLength: 30 });
+        telemetry?.source('hls', 'hls.js');
+        hlsRef.current = hls;
+        let attemptedMediaRecovery = false;
+        hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
+          setIsBuffering(false);
+          setLevels(data.levels || []);
+        });
+        hls.on(Hls.Events.FRAG_LOADED, (_, { frag }) => {
+          if (frag.type === 'main') telemetry?.delivery(frag.stats);
+        });
+        hls.on(Hls.Events.ERROR, (_, data) => {
+          if (!data.fatal || !hls) return;
+          if (data.type === Hls.ErrorTypes.MEDIA_ERROR && !attemptedMediaRecovery) {
+            attemptedMediaRecovery = true;
+            hls.recoverMediaError();
+          } else {
+            fallback(data.details);
+          }
+        });
+        hls.loadSource(streamUrl);
+        hls.attachMedia(video);
+      }).catch(() => { if (!disposed) fallback(); });
+    } else {
+      fallback();
+    }
+    return () => {
+      disposed = true;
+      telemetryRef.current = null;
+      clearEngine();
+    };
+  }, [videoId, hlsUrl, mp4Url, playbackAttempt]);
 
   // Video Events
   useEffect(() => {
@@ -135,11 +179,16 @@ export const VideoPlayer = ({
         setBuffered(video.buffered.end(video.buffered.length - 1));
       }
     };
-    const handlePlay = () => { setIsPlaying(true); setIsBuffering(false); };
-    const handlePause = () => setIsPlaying(false);
-    const handleWaiting = () => setIsBuffering(true);
-    const handlePlaying = () => setIsBuffering(false);
-    const handleError = () => setError('An error occurred during playback.');
+    const handlePlay = () => { setIsPlaying(true); setIsBuffering(false); telemetryRef.current?.attempt(); };
+    const clearStall = () => telemetryRef.current?.clearStall();
+    const handlePause = () => { setIsPlaying(false); clearStall(); };
+    const handleWaiting = () => { setIsBuffering(true); telemetryRef.current?.waiting(video); };
+    const handlePlaying = () => { setIsBuffering(false); telemetryRef.current?.playing(); };
+    const handleError = () => {
+      if (hlsRef.current) return;
+      telemetryRef.current?.error(`media_${video.error?.code || 0}`);
+      setError('An error occurred during playback.');
+    };
 
     video.addEventListener('timeupdate', updateTime);
     video.addEventListener('loadedmetadata', updateDuration);
@@ -149,6 +198,7 @@ export const VideoPlayer = ({
     video.addEventListener('waiting', handleWaiting);
     video.addEventListener('playing', handlePlaying);
     video.addEventListener('error', handleError);
+    video.addEventListener('seeking', clearStall);
 
     return () => {
       video.removeEventListener('timeupdate', updateTime);
@@ -159,20 +209,52 @@ export const VideoPlayer = ({
       video.removeEventListener('waiting', handleWaiting);
       video.removeEventListener('playing', handlePlaying);
       video.removeEventListener('error', handleError);
+      video.removeEventListener('seeking', clearStall);
     };
-  }, []);
+  }, [startPosition]);
 
   useEffect(() => {
-    const el = videoRef.current;
-    if (!el || !videoId) return;
-    if (!signedIn) {
-      const onPlay = () => interactionService.incrementView(videoId, 0, 0).catch(() => {});
-      el.addEventListener('playing', onPlay, { once: true });
-      return () => el.removeEventListener('playing', onPlay);
+    const video = videoRef.current;
+    if (video?.readyState >= 1 && video.currentTime === 0 && startPosition > 0) {
+      video.currentTime = Math.min(startPosition, video.duration);
     }
+  }, [startPosition]);
 
-    return trackPlayback(el, body => interactionService.savePlayback(videoId, body));
-  }, [videoId, signedIn]);
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !videoId) return;
+    let lastPosition = -1;
+    let lastPlayed = 0;
+    const saveProgress = () => {
+      if (!Number.isFinite(video.duration) || video.duration <= 0) return;
+      let played = 0;
+      for (let i = 0; i < video.played.length; i++) {
+        played += video.played.end(i) - video.played.start(i);
+      }
+      if (played < Math.min(5, video.duration * 0.5)) return;
+      if (!trackHistory && lastPosition >= 0) return;
+      if (lastPosition === video.currentTime && lastPlayed === played) return;
+      lastPosition = video.currentTime;
+      lastPlayed = played;
+      interactionService.incrementView(videoId, Math.min(100, played / video.duration * 100), lastPosition)
+        .catch(() => {});
+    };
+    const interval = setInterval(saveProgress, 15000);
+    video.addEventListener('pause', saveProgress);
+    video.addEventListener('ended', saveProgress);
+    return () => {
+      clearInterval(interval);
+      video.removeEventListener('pause', saveProgress);
+      video.removeEventListener('ended', saveProgress);
+      saveProgress();
+    };
+  }, [videoId, trackHistory, playbackAttempt]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !videoId || !trackHistory) return;
+    return trackPlayback(video, body => interactionService.savePlayback(videoId, { ...body, rangesOnly: true }));
+  }, [videoId, trackHistory, playbackAttempt]);
 
   // Controls Auto-hide
   useEffect(() => {
@@ -184,16 +266,17 @@ export const VideoPlayer = ({
         timeout = setTimeout(() => setShowControls(false), 3000);
       }
     };
+    const hideControls = () => { if (isPlaying) setShowControls(false); };
     const el = containerRef.current;
     if (el) {
       el.addEventListener('mousemove', resetTimer);
-      el.addEventListener('mouseleave', () => { if (isPlaying) setShowControls(false); });
+      el.addEventListener('mouseleave', hideControls);
     }
     resetTimer();
     return () => {
       if (el) {
         el.removeEventListener('mousemove', resetTimer);
-        el.removeEventListener('mouseleave', () => {});
+        el.removeEventListener('mouseleave', hideControls);
       }
       clearTimeout(timeout);
     };
@@ -202,6 +285,7 @@ export const VideoPlayer = ({
   // Actions
   const togglePlay = useCallback(() => {
     if (videoRef.current.paused) {
+      telemetryRef.current?.intent();
       videoRef.current.play().catch(() => {});
     } else {
       videoRef.current.pause();
@@ -231,14 +315,24 @@ export const VideoPlayer = ({
     videoRef.current.currentTime = time;
   };
 
+  useEffect(() => {
+    const updateFullscreen = () => setIsFullscreen(document.fullscreenElement === containerRef.current);
+    document.addEventListener('fullscreenchange', updateFullscreen);
+    return () => document.removeEventListener('fullscreenchange', updateFullscreen);
+  }, []);
+
   const toggleFullscreen = async () => {
-    if (!document.fullscreenElement) {
-      await containerRef.current.requestFullscreen().catch(() => {});
-      setIsFullscreen(true);
-    } else {
-      await document.exitFullscreen().catch(() => {});
-      setIsFullscreen(false);
-    }
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await containerRef.current?.requestFullscreen?.();
+    } catch {}
+  };
+
+  const selectQuality = (level) => {
+    if (!hlsRef.current) return;
+    hlsRef.current.nextLevel = level;
+    setCurrentLevel(level);
+    setOpenMenu(null);
   };
 
   const togglePiP = async () => {
@@ -249,49 +343,45 @@ export const VideoPlayer = ({
     }
   };
 
-  // Keyboard controls
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (!containerRef.current?.contains(document.activeElement) && document.activeElement.tagName !== 'BODY') {
-        return; // User is typing somewhere else
-      }
-      
-      switch (e.key.toLowerCase()) {
-        case ' ':
-        case 'k':
-          e.preventDefault();
-          togglePlay();
-          break;
-        case 'f':
-          e.preventDefault();
-          toggleFullscreen();
-          break;
-        case 'm':
-          e.preventDefault();
-          toggleMute();
-          break;
-        case 'arrowright':
-        case 'l':
-          e.preventDefault();
-          videoRef.current.currentTime += 5;
-          break;
-        case 'arrowleft':
-        case 'j':
-          e.preventDefault();
-          videoRef.current.currentTime -= 5;
-          break;
-        default:
-          break;
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [togglePlay]);
+  const onPlayerKey = (event) => {
+    if (event.target !== containerRef.current && event.target !== videoRef.current) return;
+    const video = videoRef.current;
+    if (!video) return;
+    switch (event.key.toLowerCase()) {
+      case ' ':
+      case 'k':
+        togglePlay();
+        break;
+      case 'f':
+        void toggleFullscreen();
+        break;
+      case 'm':
+        toggleMute();
+        break;
+      case 'arrowright':
+      case 'l':
+        video.currentTime = Math.min(video.duration || Infinity, video.currentTime + 5);
+        break;
+      case 'arrowleft':
+      case 'j':
+        video.currentTime = Math.max(0, video.currentTime - 5);
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+  };
 
   return (
     <div
       ref={containerRef}
-      className="relative w-full aspect-video bg-[#0B0D12] rounded-2xl overflow-hidden shadow-2xl group flex justify-center items-center select-none"
+      tabIndex={0}
+      role="region"
+      aria-label={`Video player for ${title || 'this video'}`}
+      aria-keyshortcuts="Space K M F ArrowLeft ArrowRight J L"
+      onKeyDown={onPlayerKey}
+      onFocus={() => setShowControls(true)}
+      className="relative w-full focus-visible:ring-2 focus-visible:ring-[#d6b36a] aspect-video bg-[#101010] rounded-2xl overflow-hidden shadow-2xl group flex justify-center items-center select-none"
       onDoubleClick={toggleFullscreen}
     >
       {/* Video Element */}
@@ -302,7 +392,10 @@ export const VideoPlayer = ({
         playsInline
         className="w-full h-full object-contain"
         onClick={togglePlay}
-      />
+      >
+        {captionUrl && <track key={captionUrl} ref={captionTrackRef} kind="captions" src={captionUrl}
+          srcLang={captionLanguage} label={captions.find((track) => track.language === captionLanguage)?.label || captionLanguage} />}
+      </video>
 
       {/* Buffering Spinner */}
       {isBuffering && (
@@ -318,16 +411,21 @@ export const VideoPlayer = ({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
           <p className="text-white text-sm font-medium">{error}</p>
+          <button type="button" className="rounded bg-white/15 px-4 py-2 text-white"
+            onClick={() => { setError(null); setPlaybackAttempt(attempt => attempt + 1); }}>
+            Retry playback
+          </button>
         </div>
       )}
 
       {/* Play Button Overlay (when paused) */}
       {!isPlaying && !isBuffering && !error && (
         <button
+          aria-label="Play video"
           onClick={togglePlay}
           className={`absolute inset-0 flex items-center justify-center bg-black/30 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'} hover:bg-black/40 group/play`}
         >
-          <div className="w-20 h-20 bg-violet-600/80 backdrop-blur-md rounded-full flex items-center justify-center transform group-hover/play:scale-110 transition-transform shadow-[0_0_30px_rgba(139,92,246,0.5)]">
+          <div className="w-20 h-20 bg-[#806632]/80 backdrop-blur-md rounded-full flex items-center justify-center transform group-hover/play:scale-110 transition-transform shadow-[0_0_30px_rgba(139,92,246,0.5)]">
             <svg className="w-10 h-10 text-white ml-1" fill="currentColor" viewBox="0 0 24 24">
               <path d="M8 5v14l11-7z" />
             </svg>
@@ -337,13 +435,24 @@ export const VideoPlayer = ({
 
       {/* Controls Overlay */}
       <div
-        className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent px-4 pb-3 pt-12 transition-opacity duration-300 z-10 flex flex-col ${
+        className={`absolute focus-within:opacity-100 focus-within:pointer-events-auto bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent px-4 pb-3 pt-12 transition-opacity duration-300 z-10 flex flex-col ${
           showControls && !error ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
         onClick={(e) => e.stopPropagation()} // Prevent playing video when clicking controls
       >
         {/* Seek Bar */}
-        <div className="relative w-full h-1.5 bg-white/20 rounded-full mb-3 cursor-pointer group/seek flex items-center">
+        <div className="relative w-full h-1.5 bg-white/20 rounded-full mb-3 cursor-pointer group/seek flex items-center"
+          onPointerMove={(event) => {
+            if (!storyboard.length || event.pointerType === 'touch' || !durationTime) return;
+            const { width, left } = event.currentTarget.getBoundingClientRect();
+            setPreviewTime(Math.min(1, Math.max(0, (event.clientX - left) / width)) * durationTime);
+          }}
+          onPointerLeave={() => setPreviewTime(null)}>
+          {preview && <div className="pointer-events-none absolute bottom-4 z-10 w-24 -translate-x-1/2 overflow-hidden rounded bg-black text-center text-xs text-white sm:w-36"
+            style={{ left: `clamp(48px, ${100 * previewTime / durationTime}%, calc(100% - 48px))` }} aria-hidden="true">
+            <img src={preview.url} alt="" className="aspect-video w-full object-cover" />
+            <span>{formatTime(previewTime)}</span>
+          </div>}
           {/* Buffered Progress */}
           <div
             className="absolute top-0 left-0 h-full bg-white/40 rounded-full pointer-events-none"
@@ -351,12 +460,13 @@ export const VideoPlayer = ({
           />
           {/* Played Progress */}
           <div
-            className="absolute top-0 left-0 h-full bg-gradient-to-r from-violet-500 to-cyan-400 rounded-full pointer-events-none"
+            className="absolute top-0 left-0 h-full bg-gradient-to-r from-[#806632] to-[#d6b36a] rounded-full pointer-events-none"
             style={{ width: `${(currentTime / (durationTime || 1)) * 100}%` }}
           />
           {/* Seek Input */}
           <input
             type="range"
+            aria-label="Playback position"
             min="0"
             max={durationTime || 100}
             value={currentTime}
@@ -365,16 +475,16 @@ export const VideoPlayer = ({
           />
           {/* Hover Scrubber thumb */}
           <div
-            className="absolute w-3 h-3 bg-cyan-400 rounded-full -ml-1.5 shadow-[0_0_10px_#22D3EE] opacity-0 group-hover/seek:opacity-100 transition-opacity pointer-events-none z-10"
+            className="absolute w-3 h-3 bg-[#d6b36a] rounded-full -ml-1.5 shadow-[0_0_10px_#22D3EE] opacity-0 group-hover/seek:opacity-100 group-focus-within/seek:opacity-100 transition-opacity pointer-events-none z-10"
             style={{ left: `${(currentTime / (durationTime || 1)) * 100}%` }}
           />
         </div>
 
         {/* Lower Controls */}
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-4">
             {/* Play/Pause */}
-            <button onClick={togglePlay} className="text-white hover:text-cyan-400 transition-colors focus:outline-none">
+            <button aria-label={isPlaying ? "Pause" : "Play"} onClick={togglePlay} className="text-white hover:text-[#d6b36a] transition-colors focus-visible:ring-2 focus-visible:ring-[#d6b36a]">
               {isPlaying ? (
                 <svg className="w-7 h-7" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
               ) : (
@@ -384,7 +494,7 @@ export const VideoPlayer = ({
 
             {/* Volume */}
             <div className="flex items-center gap-2 group/vol relative">
-              <button onClick={toggleMute} className="text-white hover:text-cyan-400 transition-colors focus:outline-none">
+              <button aria-label={isMuted ? "Unmute" : "Mute"} onClick={toggleMute} className="text-white hover:text-[#d6b36a] transition-colors focus-visible:ring-2 focus-visible:ring-[#d6b36a]">
                 {isMuted || volume === 0 ? (
                   <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
                 ) : volume < 0.5 ? (
@@ -395,10 +505,11 @@ export const VideoPlayer = ({
               </button>
               <input
                 type="range"
+                aria-label="Volume"
                 min="0" max="1" step="0.01"
                 value={isMuted ? 0 : volume}
                 onChange={handleVolumeChange}
-                className="w-0 opacity-0 group-hover/vol:w-20 group-hover/vol:opacity-100 transition-all duration-300 origin-left cursor-pointer accent-cyan-400"
+                className="w-0 opacity-0 group-hover/vol:w-20 group-hover/vol:opacity-100 group-focus-within/vol:w-20 group-focus-within/vol:opacity-100 transition-all duration-300 origin-left cursor-pointer accent-[#d6b36a]"
               />
             </div>
 
@@ -408,18 +519,28 @@ export const VideoPlayer = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-4">
+            {captions.length > 0 && <select aria-label="Captions"
+              className="max-w-28 rounded bg-slate-900 px-1 py-1 text-xs text-white"
+              value={captionLanguage} onChange={(event) => setCaptionLanguage(event.target.value)}>
+              <option value="">Captions off</option>
+              {captions.map((track) => <option value={track.language} key={track.language}>{track.label}</option>)}
+            </select>}
+            {captionError && <span role="status" className="text-xs text-red-200">{captionError}</span>}
             {/* Playback Speed */}
             <div className="relative group/speed">
-              <button className="text-white text-xs font-bold px-2 py-1 rounded hover:bg-white/10 transition-colors">
+              <button aria-label="Playback speed" aria-expanded={openMenu === 'speed'}
+                onClick={() => setOpenMenu(openMenu === 'speed' ? null : 'speed')}
+                className="text-white text-xs font-bold px-2 py-1 rounded hover:bg-white/10 focus-visible:ring-2">
                 {playbackRate}x
               </button>
-              <div className="absolute bottom-full right-0 mb-2 bg-[#151923] rounded-lg shadow-xl border border-white/5 flex flex-col overflow-hidden opacity-0 invisible group-hover/speed:opacity-100 group-hover/speed:visible transition-all">
+              <div hidden={openMenu !== 'speed'} className="absolute bottom-full right-0 mb-2 bg-[#1b1b1b] rounded-lg shadow-xl border border-white/5 overflow-hidden">
                 {[0.5, 1, 1.25, 1.5, 2].map(rate => (
                   <button
                     key={rate}
-                    onClick={() => { setPlaybackRate(rate); videoRef.current.playbackRate = rate; }}
-                    className={`px-4 py-2 text-xs text-left hover:bg-white/10 ${playbackRate === rate ? 'text-cyan-400 font-bold' : 'text-gray-300'}`}
+                    aria-pressed={playbackRate === rate}
+                    onClick={() => { setPlaybackRate(rate); videoRef.current.playbackRate = rate; setOpenMenu(null); }}
+                    className={`px-4 py-2 text-xs text-left hover:bg-white/10 ${playbackRate === rate ? 'text-[#d6b36a] font-bold' : 'text-gray-300'}`}
                   >
                     {rate}x
                   </button>
@@ -430,16 +551,17 @@ export const VideoPlayer = ({
             {/* Quality Selector (if HLS levels exist) */}
             {levels.length > 0 && (
               <div className="relative group/quality">
-                <button className="text-white text-xs font-bold px-2 py-1 rounded hover:bg-white/10 transition-colors flex items-center gap-1">
+                <button aria-label="Video quality" aria-expanded={openMenu === 'quality'}
+                  onClick={() => setOpenMenu(openMenu === 'quality' ? null : 'quality')}
+                  className="text-white text-xs font-bold px-2 py-1 rounded hover:bg-white/10 focus-visible:ring-2 flex items-center gap-1">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                  {currentLevel === -1 ? 'Auto' : `${levels[currentLevel]?.height}p`}
+                  {currentLevel === -1 ? 'Auto' : (levels[currentLevel]?.height ? `${levels[currentLevel].height}p` : 'Manual')}
                 </button>
-                <div className="absolute bottom-full right-0 mb-2 bg-[#151923] rounded-lg shadow-xl border border-white/5 flex flex-col overflow-hidden opacity-0 invisible group-hover/quality:opacity-100 group-hover/quality:visible transition-all">
+                <div hidden={openMenu !== 'quality'} className="absolute bottom-full right-0 mb-2 bg-[#1b1b1b] rounded-lg shadow-xl border border-white/5 overflow-hidden">
                   <button
-                    onClick={() => {
-                      if (hlsRef.current) hlsRef.current.currentLevel = -1;
-                    }}
-                    className={`px-4 py-2 text-xs text-left hover:bg-white/10 whitespace-nowrap ${currentLevel === -1 ? 'text-cyan-400 font-bold' : 'text-gray-300'}`}
+                    onClick={() => selectQuality(-1)}
+                    aria-pressed={currentLevel === -1}
+                    className={`px-4 py-2 text-xs text-left hover:bg-white/10 whitespace-nowrap ${currentLevel === -1 ? 'text-[#d6b36a] font-bold' : 'text-gray-300'}`}
                   >
                     Auto
                   </button>
@@ -448,10 +570,9 @@ export const VideoPlayer = ({
                     return (
                       <button
                         key={originalIndex}
-                        onClick={() => {
-                          if (hlsRef.current) hlsRef.current.currentLevel = originalIndex;
-                        }}
-                        className={`px-4 py-2 text-xs text-left hover:bg-white/10 whitespace-nowrap ${currentLevel === originalIndex ? 'text-cyan-400 font-bold' : 'text-gray-300'}`}
+                        onClick={() => selectQuality(originalIndex)}
+                        aria-pressed={currentLevel === originalIndex}
+                        className={`px-4 py-2 text-xs text-left hover:bg-white/10 whitespace-nowrap ${currentLevel === originalIndex ? 'text-[#d6b36a] font-bold' : 'text-gray-300'}`}
                       >
                         {level.height}p
                       </button>
@@ -463,13 +584,13 @@ export const VideoPlayer = ({
 
             {/* PiP */}
             {document.pictureInPictureEnabled && (
-              <button onClick={togglePiP} className="text-white hover:text-cyan-400 transition-colors focus:outline-none" title="Picture in Picture">
+              <button aria-label="Picture in picture" onClick={togglePiP} className="text-white hover:text-[#d6b36a] transition-colors focus-visible:ring-2 focus-visible:ring-[#d6b36a]" title="Picture in Picture">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11V9a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2h4m6 0v-4m0 0l-3 3m3-3l3 3" /></svg>
               </button>
             )}
 
             {/* Fullscreen */}
-            <button onClick={toggleFullscreen} className="text-white hover:text-cyan-400 transition-colors focus:outline-none">
+            <button aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"} onClick={toggleFullscreen} className="text-white hover:text-[#d6b36a] transition-colors focus-visible:ring-2 focus-visible:ring-[#d6b36a]">
               {isFullscreen ? (
                 <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>
               ) : (

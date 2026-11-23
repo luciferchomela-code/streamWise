@@ -18,28 +18,27 @@ export const uploadService = {
   },
 
   // Upload to Cloudinary using signature
-  uploadToCloudinary: async (file, signatureData, onProgress) => {
-    const { signature, timestamp, apiKey, cloudName, folder, publicId, eager, eagerAsync } = signatureData;
+  uploadToCloudinary: async (file, signatureData, onProgress, headers = {}) => {
+    const { signature, timestamp, apiKey, uploadUrl, folder, publicId, overwrite, eager, eagerAsync } = signatureData;
     
     const formData = new FormData();
     formData.append('file', file);
     formData.append('api_key', apiKey);
     formData.append('timestamp', timestamp);
     formData.append('signature', signature);
-    formData.append('folder', folder);
+    if (folder) formData.append('folder', folder);
 
     // These MUST be included if they were part of the signed params
     if (publicId) formData.append('public_id', publicId);
+    if (overwrite !== undefined) formData.append('overwrite', String(overwrite));
     if (eager) formData.append('eager', eager);
     if (eagerAsync !== undefined) formData.append('eager_async', eagerAsync ? 'true' : 'false');
     
-    // Determine resource type (image or video) based on file type
-    const resourceType = file.type.startsWith('video/') ? 'video' : 'image';
-    const uploadUrl = `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`;
-
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', uploadUrl);
+      xhr.timeout = 120000;
+      for (const [name, value] of Object.entries(headers)) xhr.setRequestHeader(name, value);
 
       if (onProgress && xhr.upload) {
         xhr.upload.onprogress = (e) => {
@@ -51,15 +50,19 @@ export const uploadService = {
       }
 
       xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          const response = JSON.parse(xhr.responseText);
+        let response;
+        try { response = JSON.parse(xhr.responseText); } catch {}
+        if (xhr.status >= 200 && xhr.status < 300 && response) {
           resolve(response);
         } else {
-          reject(new Error(xhr.responseText || 'Upload failed'));
+          reject(Object.assign(new Error(response?.error?.message || 'Upload failed.'), {
+            status: xhr.status, retryable: xhr.status === 429 || xhr.status >= 500,
+          }));
         }
       };
 
-      xhr.onerror = () => reject(new Error('Network error during upload'));
+      xhr.onerror = xhr.ontimeout = () =>
+        reject(Object.assign(new Error('Upload interrupted. Retry to continue.'), { retryable: true }));
       xhr.send(formData);
     });
   }

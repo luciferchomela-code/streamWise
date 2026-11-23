@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { channelService } from '../../services/channelService';
 import { videoService } from '../../services/videoService';
 import { useAuth } from '../../hooks/useAuth';
-import { Navbar } from '../../components/layout/Navbar/Navbar';
+
 import { VideoCard } from '../../components/home/VideoCard/VideoCard';
 import ImageUploader from '../../components/common/ImageUploader/ImageUploader';
 
@@ -76,11 +76,11 @@ export default function MyChannel() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#0B0D12] text-white flex flex-col">
-        <Navbar />
+      <div className="min-h-screen bg-[#101010] text-white flex flex-col">
+        
         <div className="flex-1 flex items-center justify-center">
           <div className="flex flex-col items-center gap-3">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400"></div>
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#d6b36a]"></div>
             <p className="text-gray-400 text-sm">Loading your channel...</p>
           </div>
         </div>
@@ -90,20 +90,20 @@ export default function MyChannel() {
 
   if (channel) {
     return (
-      <div className="min-h-screen bg-[#0B0D12] text-white flex flex-col">
-        <Navbar />
+      <div className="min-h-screen bg-[#101010] text-white flex flex-col">
+        
         <main className="flex-1 pb-16">
           <div className="max-w-[1400px] mx-auto">
             {/* Channel Header */}
-            <div className="bg-[#151923] border-b border-white/5 overflow-hidden">
+            <div className="bg-[#1b1b1b] border-b border-white/5 overflow-hidden">
               {/* Cover */}
-              <div className="h-40 md:h-56 bg-gradient-to-r from-violet-600/30 via-cyan-600/20 to-violet-600/30 relative">
+              <div className="h-40 md:h-56 bg-gradient-to-r from-[#806632]/30 via-[#806632]/20 to-[#806632]/30 relative">
                 <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmZmZmYiIGZpbGwtb3BhY2l0eT0iMC4wMyI+PHBhdGggZD0iTTM2IDM0djZoNnYtNmgtNnptNiA2djZoNnYtNmgtNnptLTYgMHY2aDZ2LTZoLTZ6Ii8+PC9nPjwvZz48L3N2Zz4=')] opacity-50"></div>
               </div>
 
               {/* Profile Row */}
               <div className="px-6 md:px-12 pb-6 relative -mt-16 flex flex-col md:flex-row gap-6 md:gap-8 items-start md:items-end">
-                <div className="w-28 h-28 md:w-36 md:h-36 rounded-full border-4 border-[#0B0D12] bg-[#1A1F2B] overflow-hidden shrink-0 shadow-xl">
+                <div className="w-28 h-28 md:w-36 md:h-36 rounded-full border-4 border-[#101010] bg-[#1b1b1b] overflow-hidden shrink-0 shadow-xl">
                   <img 
                     src={channel.image || `https://ui-avatars.com/api/?name=${channel.name}&background=1A1F2B&color=fff&size=200`} 
                     alt={channel.name} 
@@ -115,7 +115,7 @@ export default function MyChannel() {
                   <div>
                     <h1 className="text-2xl md:text-3xl font-bold text-white">{channel.name}</h1>
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-gray-400 text-sm mt-1">
-                      <span className="text-cyan-400 font-medium">@{channel.handle}</span>
+                      <span className="text-[#d6b36a] font-medium">@{channel.handle}</span>
                       <span>·</span>
                       <span>{channel.subscribersCount || 0} subscribers</span>
                       <span>·</span>
@@ -123,7 +123,7 @@ export default function MyChannel() {
                       {channel.category && channel.category !== 'General' && (
                         <>
                           <span>·</span>
-                          <span className="px-2 py-0.5 bg-violet-500/10 text-violet-400 rounded-full text-xs font-medium border border-violet-500/20">{channel.category}</span>
+                          <span className="px-2 py-0.5 bg-[#806632]/10 text-[#d6b36a] rounded-full text-xs font-medium border border-[#d6b36a]/20">{channel.category}</span>
                         </>
                       )}
                     </div>
@@ -181,16 +181,16 @@ export default function MyChannel() {
 
   // Create Channel Form
   return (
-    <div className="min-h-screen bg-[#0B0D12] text-white flex flex-col">
-      <Navbar />
+    <div className="min-h-screen bg-[#101010] text-white flex flex-col">
+      
       <div className="flex-1 flex items-center justify-center p-6">
-        <div className="bg-[#151923] p-8 rounded-3xl border border-white/5 shadow-2xl w-full max-w-lg relative overflow-hidden my-8">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-cyan-500/10 rounded-full blur-3xl -mr-32 -mt-32 pointer-events-none"></div>
-          <div className="absolute bottom-0 left-0 w-64 h-64 bg-violet-500/10 rounded-full blur-3xl -ml-32 -mb-32 pointer-events-none"></div>
+        <div className="bg-[#1b1b1b] p-8 rounded-3xl border border-white/5 shadow-2xl w-full max-w-lg relative overflow-hidden my-8">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-[#806632]/10 rounded-full blur-3xl -mr-32 -mt-32 pointer-events-none"></div>
+          <div className="absolute bottom-0 left-0 w-64 h-64 bg-[#806632]/10 rounded-full blur-3xl -ml-32 -mb-32 pointer-events-none"></div>
           
           <div className="relative z-10">
             <div className="flex justify-center mb-8">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-violet-500 to-cyan-400 flex items-center justify-center shadow-[0_0_20px_rgba(139,92,246,0.3)]">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-[#806632] to-[#d6b36a] flex items-center justify-center shadow-[0_0_20px_rgba(139,92,246,0.3)]">
                 <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
                 </svg>
@@ -228,7 +228,7 @@ export default function MyChannel() {
                   required
                   value={formData.name}
                   onChange={(e) => setFormData({...formData, name: e.target.value})}
-                  className="w-full bg-[#1A1F2B] border border-white/5 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/50 transition-all"
+                  className="w-full bg-[#1b1b1b] border border-white/5 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-[#d6b36a]/50 focus:ring-1 focus:ring-[#d6b36a]/50 transition-all"
                   placeholder="e.g. John's Tech Vlogs"
                 />
               </div>
@@ -241,7 +241,7 @@ export default function MyChannel() {
                     type="text"
                     value={formData.handle}
                     onChange={(e) => setFormData({...formData, handle: e.target.value})}
-                    className="w-full bg-[#1A1F2B] border border-white/5 rounded-xl pl-9 pr-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/50 transition-all"
+                    className="w-full bg-[#1b1b1b] border border-white/5 rounded-xl pl-9 pr-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-[#d6b36a]/50 focus:ring-1 focus:ring-[#d6b36a]/50 transition-all"
                     placeholder="johnstech"
                   />
                 </div>
@@ -252,7 +252,7 @@ export default function MyChannel() {
                 <select
                   value={formData.category}
                   onChange={(e) => setFormData({...formData, category: e.target.value})}
-                  className="w-full bg-[#1A1F2B] border border-white/5 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/50 transition-all appearance-none"
+                  className="w-full bg-[#1b1b1b] border border-white/5 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#d6b36a]/50 focus:ring-1 focus:ring-[#d6b36a]/50 transition-all appearance-none"
                 >
                   {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
@@ -263,7 +263,7 @@ export default function MyChannel() {
                 <textarea
                   value={formData.description}
                   onChange={(e) => setFormData({...formData, description: e.target.value})}
-                  className="w-full bg-[#1A1F2B] border border-white/5 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/50 transition-all resize-none h-24"
+                  className="w-full bg-[#1b1b1b] border border-white/5 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-[#d6b36a]/50 focus:ring-1 focus:ring-[#d6b36a]/50 transition-all resize-none h-24"
                   placeholder="Tell viewers what your channel is about..."
                 />
               </div>
@@ -271,7 +271,7 @@ export default function MyChannel() {
               <button
                 type="submit"
                 disabled={isCreating}
-                className="w-full py-3.5 px-4 bg-gradient-to-r from-violet-500 to-cyan-500 hover:from-violet-600 hover:to-cyan-600 text-white font-semibold rounded-xl transition-all transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(139,92,246,0.3)] mt-2 flex items-center justify-center gap-2"
+                className="w-full py-3.5 px-4 bg-gradient-to-r from-[#806632] to-[#806632] hover:from-[#806632] hover:to-[#806632] text-white font-semibold rounded-xl transition-all transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(139,92,246,0.3)] mt-2 flex items-center justify-center gap-2"
               >
                 {isCreating ? (
                   <>

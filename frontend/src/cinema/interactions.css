@@ -1,0 +1,158 @@
+/* Shared feedback for pointer, keyboard and touch interactions. */
+:root {
+  --action-hover: #423622;
+  --action-text: #fff0c8;
+  --action-edge: #cba967;
+  --action-speed: 160ms;
+}
+#root :where(a, button, summary, input, select, textarea, [role="button"]) {
+  transition-property: color, background-color, border-color, box-shadow, opacity, translate, scale;
+  transition-duration: var(--action-speed);
+  transition-timing-function: ease-out;
+}
+.nav-group a::after {
+  content: "";
+  margin-inline-start: auto;
+  width: 6px;
+  height: 6px;
+  border: solid currentColor;
+  border-width: 1.5px 1.5px 0 0;
+  transform: translateX(-5px) rotate(45deg);
+  opacity: 0;
+  transition: opacity 150ms, transform 180ms;
+}
+.nav-group svg, .frame img, .poster img, .wordmark i {
+  transition: transform 230ms ease-out;
+}
+.browse-tabs a { position: relative; }
+.browse-tabs a::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 2px;
+  background: var(--gold);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 180ms ease-out;
+}
+.mast > a:last-child, .mobile-directory summary {
+  padding: 8px 12px;
+  border: 1px solid var(--rule);
+}
+#root :is(a,button,summary,input,select,textarea,[role="button"]):focus-visible {
+  outline: 2px solid #f5cf84;
+  outline-offset: 3px;
+}
+#root :is(button:enabled,summary,.nav-group a,.mast>a:last-child,.sub-control,.primary-control,.ticket):focus-visible {
+  background-color: var(--action-hover);
+  color: var(--action-text);
+}
+@media (hover: hover) {
+  #root a[href]:hover { color: var(--action-text); }
+  #root :is(button:enabled,summary,[role="button"]:not([aria-disabled="true"]),.nav-group a,.mast>a:last-child,.sub-control,.rail a):hover {
+    background-color: var(--action-hover);
+    color: var(--action-text);
+    box-shadow: inset 0 0 0 1px var(--action-edge);
+  }
+  #root .nav-group a:hover { box-shadow: inset 3px 0 var(--gold); }
+  .nav-group a:hover svg { transform: translateX(2px); }
+  .nav-group a:hover::after { opacity: 1; transform: translateX(0) rotate(45deg); }
+  .browse-tabs a:hover::after { transform: scaleX(1); }
+  #root :is(.ticket,.primary-control):hover {
+    background-color: #ffe4a6;
+    color: #21190d;
+    translate: 0 -2px;
+    box-shadow: 0 3px 0 #765f37;
+  }
+  .film:hover .frame, .poster:hover { outline: 1px solid var(--gold); outline-offset: -1px; }
+  .film:hover .frame img, .poster:hover img { transform: scale(1.035); }
+  .wordmark:hover i { transform: translateX(3px); }
+  .mast form:hover { border-color: var(--action-edge); }
+}
+#root :is(button:enabled,summary,.nav-group a,.mast>a,.ticket,.primary-control,.sub-control,.browse-tabs a,[role="button"]:not([aria-disabled="true"])):active {
+  background-color: #e0bd77;
+  color: #18140d;
+  scale: .97;
+  translate: 0 0;
+  transition-duration: 55ms;
+}
+.mobile-directory[open] > summary { color: var(--gold); border-color: var(--action-edge); }
+#root :is(button:disabled,[aria-disabled="true"]) { cursor: not-allowed; }
+@media (prefers-reduced-motion: reduce) {
+  #root *, #root *::before, #root *::after {
+    transition-duration: 0s;
+    animation-duration: .01ms;
+    animation-iteration-count: 1;
+  }
+  #root :is(a,button,summary,[role="button"]) { translate: none; scale: none; }
+  .film:hover .frame img, .poster:hover img, .wordmark:hover i, .nav-group a:hover svg { transform: none; }
+}
+/* The four destinations form a single switch with a persistent selection. */
+.folio .browse-tabs {
+  width: fit-content;
+  max-width: 100%;
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding: 4px;
+  gap: 3px;
+  border: 1px solid #514a3c;
+  border-radius: 8px;
+  background: #191917;
+}
+.folio .browse-tabs a {
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 9px clamp(10px, 1.5vw, 24px);
+  min-height: 40px;
+  border: 0;
+  border-radius: 4px;
+  font-weight: 550;
+  white-space: nowrap;
+}
+.folio .browse-tabs a::after { display: none; }
+#root .browse-tabs a[aria-current="page"] { background: #e7cb91; color: #211a0f; }
+@media (hover:hover) {
+  #root .browse-tabs a:hover { background: #443823; color: #ffedcc; }
+  #root .browse-tabs a[aria-current="page"]:hover { background: #f4dca8; color: #211a0f; }
+}
+.mast form.catalog-search {
+  position: relative;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 7px;
+  border-color: #514c42;
+  background: #201f1c;
+  color: var(--type);
+}
+.mast form.catalog-search:focus-within { border-color: var(--gold); box-shadow: 0 0 0 2px #d6b36a23; }
+.mast .catalog-search input { background: transparent; padding: 8px 0; }
+#root .catalog-search input:focus-visible { outline: 0; }
+.catalog-search input::-webkit-search-cancel-button { display:none; }
+.catalog-search kbd { white-space:nowrap; border:1px solid #585349; color:#c5beaf; padding:1px 5px; border-radius:3px; font:11px/1.7 monospace; }
+.search-preview {
+  position: absolute;
+  z-index: 60;
+  inset: calc(100% + 7px) -1px auto;
+  background: #201f1c;
+  border: 1px solid #645947;
+  border-radius: 7px;
+  box-shadow: 0 12px 32px #0006;
+  overflow: auto;
+  max-height: min(380px,55vh);
+}
+.search-preview a { display:flex;align-items:center;gap:12px;padding:9px 12px; }
+.search-preview a:is(:hover,:focus-visible) { background:var(--action-hover); }
+.search-preview img { width:68px;aspect-ratio:16/9;object-fit:cover; }
+.search-preview a span { min-width:0; }
+.search-preview strong,.search-preview small { display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis; }
+.search-preview small,.search-preview p { color:var(--quiet); }
+.search-preview p { padding:14px; }
+.mast .search-preview .all-results { width:100%; display:flex; justify-content:space-between; gap:8px; text-align:left; overflow-wrap:anywhere; padding:12px; color:var(--gold); border-top:1px solid var(--rule); }
+@media(max-width:760px) {
+  .mast:focus-within { position:relative; z-index:49; }
+  .folio .browse-tabs { width:100%; }
+  .folio .browse-tabs a { flex:1 0 auto; padding-inline:9px; font-size:.82rem; }
+}

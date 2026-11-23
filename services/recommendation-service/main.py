@@ -81,7 +81,12 @@ def feed(request: Request, response: Response, limit: int = Query(12, ge=1, le=5
     user = identity(request)
     response.headers["Cache-Control"] = "private, no-store"
     fields = "title description tags category duration views channelId createdAt thumbnailUrl".split()
-    catalog = list(db.videos.find({"visibility": "public", "status": {"$in": ["ready", "published"]}}, fields))
+    eligible = {"visibility": "public", "status": {"$in": ["ready", "published"]}}
+    if user:
+        blocked = db.creatorblocks.distinct("channelId", {"userId": user})
+        if blocked:
+            eligible["channelId"] = {"$nin": blocked}
+    catalog = list(db.videos.find(eligible, fields))
     history = db.videointeractions.find({"userId": user}, {"playedRanges": 0}) if user else []
     now = datetime.now(timezone.utc)
     chosen = []

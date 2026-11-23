@@ -107,10 +107,10 @@ export default function ImageUploader({
           'relative overflow-hidden rounded-xl border-2 transition-all select-none',
           isInteractive ? 'cursor-pointer' : 'cursor-not-allowed opacity-60',
           isDragOver
-            ? 'border-cyan-400 bg-cyan-500/10'
+            ? 'border-[#d6b36a] bg-[#806632]/10'
             : preview
             ? 'border-white/20'
-            : 'border-dashed border-white/20 hover:border-cyan-400/60 hover:bg-white/5',
+            : 'border-dashed border-white/20 hover:border-[#d6b36a]/60 hover:bg-white/5',
         ].join(' ')}
         style={{ aspectRatio }}
       >
@@ -126,7 +126,7 @@ export default function ImageUploader({
         {/* Upload progress overlay */}
         {uploading && (
           <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center gap-3 backdrop-blur-sm">
-            <svg className="w-8 h-8 text-cyan-400 animate-spin" fill="none" viewBox="0 0 24 24">
+            <svg className="w-8 h-8 text-[#d6b36a] animate-spin" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
@@ -137,7 +137,7 @@ export default function ImageUploader({
               </div>
               <div className="w-full bg-white/10 rounded-full h-1.5 overflow-hidden">
                 <div
-                  className="h-full bg-cyan-400 transition-all duration-300"
+                  className="h-full bg-[#d6b36a] transition-all duration-300"
                   style={{ width: `${progress}%` }}
                 />
               </div>

@@ -1,6 +1,9 @@
+import { VideoTile } from '../../cinema/Catalog';
+import {StartParty} from "../Features/Community";
+import { WatchActions, ReportContent } from './WatchActions';
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { Navbar } from '../../components/layout/Navbar/Navbar';
+
 import { videoService } from '../../services/videoService';
 import { interactionService } from '../../services/interactionService';
 import { channelService } from '../../services/channelService';
@@ -50,10 +53,11 @@ const CommentItem = ({ comment, onDelete, currentUserId, isVideoOwner }) => {
           <span className="text-white text-sm font-semibold">{comment.authorId?.name || 'Anonymous'}</span>
           <span className="text-gray-500 text-xs">{formatTimeAgo(comment.createdAt)}</span>
           {isVideoOwner && comment.authorId?._id !== currentUserId && (
-            <span className="text-[10px] px-1.5 py-0.5 bg-violet-500/20 text-violet-400 rounded-full border border-violet-500/30">moderated</span>
+            <span className="text-[10px] px-1.5 py-0.5 bg-[#806632]/20 text-[#d6b36a] rounded-full border border-[#d6b36a]/30">moderated</span>
           )}
         </div>
         <p className="text-gray-300 text-sm leading-relaxed">{comment.body}</p>
+          {currentUserId && comment.authorId?._id !== currentUserId && <ReportContent kind="comment" targetId={comment._id} />}
       </div>
       {canDelete && (
         <button
@@ -174,10 +178,6 @@ export default function WatchVideo() {
       .catch(() => setComments([]))
       .finally(() => setCommentsLoading(false));
 
-    // Record a page visit immediately so watch history is updated on open
-    if (user) {
-      interactionService.incrementView(videoId, 1, 0).catch(() => {});
-    }
   }, [videoId, user]);
 
   // Determine if current user owns this video's channel
@@ -192,7 +192,7 @@ export default function WatchVideo() {
     try {
       await videoService.deleteVideo(videoId);
       setShowDeleteModal(false);
-      navigate('/my-channel'); // redirect after successful deletion
+      navigate('/channel'); // redirect after successful deletion
     } catch (err) {
       setDeleteError(err.message || 'Failed to delete video. Please try again.');
       setDeleting(false);
@@ -275,368 +275,15 @@ export default function WatchVideo() {
     } catch (err) { console.error(err); }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[#0B0D12] text-white">
-        <Navbar />
-        <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8 grid grid-cols-1 xl:grid-cols-3 gap-8">
-          <div className="xl:col-span-2 space-y-4 animate-pulse">
-            <div className="aspect-video w-full rounded-2xl bg-white/5" />
-            <div className="h-8 bg-white/5 rounded w-3/4" />
-            <div className="h-4 bg-white/5 rounded w-1/3" />
-          </div>
-          <div className="space-y-4 animate-pulse">
-            {Array(4).fill(0).map((_, i) => <div key={i} className="h-24 rounded-xl bg-white/5" />)}
-          </div>
-        </div>
-      </div>
-    );
-  }
 
-  if (error) {
-    return (
-      <div className="min-h-screen bg-[#0B0D12] text-white flex flex-col">
-        <Navbar />
-        <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
-          <div className="w-20 h-20 rounded-full bg-red-500/10 flex items-center justify-center mb-6">
-            <svg className="w-10 h-10 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-          </div>
-          <h1 className="text-2xl font-bold mb-2">Video unavailable</h1>
-          <p className="text-gray-400 mb-6">{error}</p>
-          <Link to="/" className="px-6 py-2.5 bg-gradient-to-r from-violet-500 to-cyan-500 text-white rounded-full font-medium">
-            Back to Home
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-[#0B0D12] text-white font-sans">
-      <Navbar />
-      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col xl:flex-row gap-8">
-
-        {/* ── Left: Video + Info + Comments ── */}
-        <div className="flex-1 flex flex-col gap-6 min-w-0">
-
-          {/* Video Player */}
-          {video?.videoUrl ? (
-            <VideoPlayer
-              key={video.id + ':' + (user?._id || user?.id || 'guest')}
-              signedIn={Boolean(user)}
-              videoId={video.id}
-              title={video.title}
-              thumbnailUrl={video.thumbnail}
-              hlsUrl={video.hlsUrl || (video.videoUrl.includes('m3u8') ? video.videoUrl : null)}
-              mp4Url={video.mp4Url || (!video.videoUrl.includes('m3u8') ? video.videoUrl : null)}
-              duration={video.duration}
-              startPosition={startPosition}
-            />
-          ) : (
-            <div className="relative aspect-video w-full rounded-2xl overflow-hidden shadow-2xl">
-              <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-[#151923]">
-                {video?.thumbnail ? (
-                  <img src={video.thumbnail} alt={video.title} className="w-full h-full object-cover opacity-40" />
-                ) : null}
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
-                  <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center">
-                    <svg className="w-8 h-8 text-gray-400 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                  </div>
-                  <p className="text-gray-400 text-sm">Video processing or unavailable</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Mobile Recommended Row (shows between video and details on mobile) */}
-          <div className="xl:hidden w-full -mx-4 px-4 sm:mx-0 sm:px-0">
-            <h2 className="text-lg font-bold text-white mb-3">Up Next</h2>
-            <div className="flex overflow-x-auto gap-4 pb-4 scrollbar-hide snap-x">
-              {relatedVideos.map(rv => (
-                <Link
-                  key={rv.id}
-                  to={`/watch/${rv.id}`}
-                  className="snap-start flex-none w-[280px] group flex flex-col gap-3 bg-[#151923] rounded-xl p-2 border border-white/5 hover:border-cyan-400/40 transition-colors"
-                >
-                  <div className="relative w-full aspect-video rounded-lg overflow-hidden">
-                    <img
-                      src={rv.thumbnail}
-                      alt={rv.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                      onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=V&background=1A1F2B&color=fff`; }}
-                    />
-                    {rv.duration && (
-                      <span className="absolute bottom-1 right-1 bg-black/80 text-white text-[10px] px-1.5 py-0.5 rounded font-medium">
-                        {rv.duration}
-                      </span>
-                    )}
-                  </div>
-                  <div className="min-w-0 px-1 pb-1">
-                    <h3 className="text-sm font-semibold text-white line-clamp-2 group-hover:text-cyan-300 transition-colors leading-snug">{rv.title}</h3>
-                    <p className="text-xs text-gray-400 mt-1">{rv.creator}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">{rv.views} views · {rv.timeAgo}</p>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </div>
-
-          {/* Title + Actions */}
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-white mb-3 leading-snug">{video?.title}</h1>
-
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              {/* Channel Info & Subscribe */}
-              <div className="flex items-center gap-4">
-                <Link to={`/channel/${channel?._id || (typeof video?.channelId === 'object' ? video?.channelId?._id : video?.channelId)}`} className="flex items-center gap-3 group">
-                  <img
-                    src={channel?.image || `https://ui-avatars.com/api/?name=${video?.creator || channel?.name || 'C'}&background=1A1F2B&color=fff`}
-                    alt={video?.creator || channel?.name}
-                    className="w-10 h-10 rounded-full object-cover border border-white/10 group-hover:border-cyan-400 transition-colors"
-                  />
-                  <div>
-                    <div className="text-white font-semibold text-sm group-hover:text-cyan-300 transition-colors">{video?.creator || channel?.name || 'Channel'}</div>
-                    <div className="text-gray-400 text-xs">{formatNumber(channel?.subscribersCount)} subscribers</div>
-                  </div>
-                </Link>
-
-                <button
-                  onClick={handleToggleSubscribe}
-                  className={`px-4 py-2 rounded-full text-xs sm:text-sm font-semibold transition-all ${
-                    subscribed
-                      ? 'bg-white/10 hover:bg-red-500/20 text-gray-300 hover:text-red-400 border border-white/10'
-                      : 'bg-gradient-to-r from-violet-500 to-cyan-400 hover:opacity-90 text-white shadow-[0_0_15px_rgba(139,92,246,0.3)]'
-                  }`}
-                >
-                  {subscribed ? 'Subscribed' : 'Subscribe'}
-                </button>
-              </div>
-
-              {/* Like / Dislike / Watch Later / Views */}
-              <div className="flex items-center gap-2 flex-wrap">
-                <div className="flex items-center bg-[#151923] rounded-full border border-white/5 overflow-hidden">
-                  <button
-                    onClick={handleLike}
-                    className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors ${liked ? 'text-cyan-400' : 'text-gray-300 hover:text-white'}`}
-                  >
-                    <svg className="w-4 h-4" fill={liked ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
-                    </svg>
-                    {formatNumber(likes)}
-                  </button>
-                  <div className="w-px h-5 bg-white/10" />
-                  <button
-                    onClick={handleDislike}
-                    className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors ${disliked ? 'text-red-400' : 'text-gray-300 hover:text-white'}`}
-                  >
-                    <svg className="w-4 h-4" fill={disliked ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018a2 2 0 01.485.06l3.76.94m-7 10v5a2 2 0 002 2h.096c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 13V4m-7 10h2m5-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2.5" />
-                    </svg>
-                  </button>
-                </div>
-
-                <button
-                  onClick={handleToggleWatchLater}
-                  className={`flex items-center gap-2 px-4 py-2 bg-[#151923] rounded-full border border-white/5 text-sm font-medium transition-colors ${
-                    savedWatchLater ? 'text-cyan-400 border-cyan-400/30' : 'text-gray-300 hover:text-white'
-                  }`}
-                  title={savedWatchLater ? 'Saved in Watch Later' : 'Save to Watch Later'}
-                >
-                  <svg className="w-4 h-4" fill={savedWatchLater ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-                  </svg>
-                  <span>{savedWatchLater ? 'Saved' : 'Save'}</span>
-                </button>
-
-                <div className="flex items-center gap-1.5 px-4 py-2 bg-[#151923] rounded-full border border-white/5 text-sm text-gray-300">
-                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                  </svg>
-                  {formatNumber(views)}
-                </div>
-              </div>
-            </div>
-
-            {/* Description */}
-            {video?.description && (
-              <div className="mt-4 p-4 bg-[#151923] rounded-xl border border-white/5">
-                <p className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">{video.description}</p>
-              </div>
-            )}
-
-            {/* Owner Actions: Delete video */}
-            {isVideoOwner && (
-              <div className="mt-4 flex gap-3">
-                <button
-                  onClick={() => { setDeleteError(''); setShowDeleteModal(true); }}
-                  className="flex items-center gap-2 px-4 py-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 hover:border-red-500/40 text-red-400 rounded-full text-sm font-medium transition-all"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                  Delete Video
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Delete Confirmation Modal */}
-          {showDeleteModal && (
-            <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-              <div className="bg-[#151923] rounded-2xl border border-white/10 shadow-2xl p-8 max-w-md w-full">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center shrink-0">
-                    <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                    </svg>
-                  </div>
-                  <div>
-                    <h3 className="text-white font-bold text-lg">Delete Video?</h3>
-                    <p className="text-gray-400 text-sm">This cannot be undone.</p>
-                  </div>
-                </div>
-                <p className="text-gray-300 text-sm mb-6">
-                  <strong className="text-white">&ldquo;{video.title}&rdquo;</strong> will be permanently removed from Streamwise and Cloudinary, along with all its comments.
-                </p>
-                {deleteError && (
-                  <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
-                    {deleteError}
-                  </div>
-                )}
-                <div className="flex gap-3 justify-end">
-                  <button
-                    onClick={() => setShowDeleteModal(false)}
-                    disabled={deleting}
-                    className="px-5 py-2.5 bg-white/5 hover:bg-white/10 text-gray-300 rounded-full text-sm font-medium transition-colors disabled:opacity-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleDeleteVideo}
-                    disabled={deleting}
-                    className="px-5 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-full text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2"
-                  >
-                    {deleting ? (
-                      <>
-                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        Deleting...
-                      </>
-                    ) : 'Delete Permanently'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Comments */}
-          <section>
-            <h2 className="text-lg font-bold mb-5 text-white">{comments.length} Comments</h2>
-
-            {user ? (
-              <form onSubmit={handleAddComment} className="flex gap-3 mb-8">
-                <img
-                  src={user?.picture || `https://ui-avatars.com/api/?name=${user?.name}&background=1A1F2B&color=fff`}
-                  alt="you"
-                  className="w-8 h-8 rounded-full object-cover shrink-0"
-                />
-                <div className="flex-1 flex flex-col gap-2">
-                  <input
-                    type="text"
-                    value={commentText}
-                    onChange={(e) => setCommentText(e.target.value)}
-                    maxLength={2000}
-                    placeholder="Add a comment..."
-                    className="w-full bg-transparent border-b border-white/10 focus:border-cyan-400 py-2 text-sm text-white placeholder-gray-500 outline-none transition-colors"
-                  />
-                  {commentError && (
-                    <p className="text-red-400 text-xs">{commentError}</p>
-                  )}
-                  {commentText && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-600">{commentText.length}/2000</span>
-                      <div className="flex gap-2">
-                        <button type="button" onClick={() => { setCommentText(''); setCommentError(''); }} className="px-4 py-1.5 text-sm text-gray-300 hover:text-white rounded-full transition-colors">Cancel</button>
-                        <button type="submit" disabled={commentSubmitting || !commentText.trim()} className="px-4 py-1.5 text-sm bg-cyan-500 hover:bg-cyan-400 text-white rounded-full font-medium transition-colors disabled:opacity-50">
-                          {commentSubmitting ? 'Posting...' : 'Comment'}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </form>
-            ) : (
-              <div className="mb-8 p-4 bg-[#151923] border border-white/5 rounded-xl text-center">
-                <Link to="/login" className="text-cyan-400 hover:text-cyan-300 text-sm transition-colors">Sign in to comment</Link>
-              </div>
-            )}
-
-            <div className="flex flex-col gap-6">
-              {commentsLoading
-                ? Array(3).fill(0).map((_, i) => (
-                    <div key={i} className="flex gap-3 animate-pulse">
-                      <div className="w-8 h-8 rounded-full bg-white/5 shrink-0" />
-                      <div className="flex-1 space-y-2">
-                        <div className="h-3 bg-white/5 rounded w-24" />
-                        <div className="h-3 bg-white/5 rounded w-full" />
-                        <div className="h-3 bg-white/5 rounded w-3/4" />
-                      </div>
-                    </div>
-                  ))
-                : comments.length > 0
-                  ? comments.map(c => (
-                      <CommentItem
-                        key={c._id}
-                        comment={c}
-                        onDelete={handleDeleteComment}
-                        currentUserId={user?._id || user?.id}
-                        isVideoOwner={isVideoOwner}
-                      />
-                    ))
-                  : <p className="text-gray-500 text-sm">No comments yet. Be the first!</p>
-              }
-            </div>
-          </section>
-        </div>
-
-        {/* ── Right: Related Videos (Desktop) ── */}
-        <aside className="hidden xl:flex flex-col gap-4 w-[400px] shrink-0">
-          <h2 className="text-lg font-bold text-white">Up Next</h2>
-          <div className="flex flex-col gap-3">
-            {relatedVideos.length > 0
-              ? relatedVideos.map(rv => (
-                  <Link
-                    key={rv.id}
-                    to={`/watch/${rv.id}`}
-                    className="group flex gap-3 bg-[#151923] rounded-xl p-2 border border-white/5 hover:border-cyan-400/40 transition-colors"
-                  >
-                    <div className="relative w-40 aspect-video rounded-lg overflow-hidden shrink-0">
-                      <img
-                        src={rv.thumbnail}
-                        alt={rv.title}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                        onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=V&background=1A1F2B&color=fff`; }}
-                      />
-                      {rv.duration && (
-                        <span className="absolute bottom-1 right-1 bg-black/80 text-white text-[10px] px-1.5 py-0.5 rounded font-medium">
-                          {rv.duration}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0 py-1">
-                      <h3 className="text-sm font-semibold text-white line-clamp-2 group-hover:text-cyan-300 transition-colors leading-snug">{rv.title}</h3>
-                      <p className="text-xs text-gray-400 mt-1">{rv.creator}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">{rv.views} views · {rv.timeAgo}</p>
-                    </div>
-                  </Link>
-                ))
-              : <p className="text-gray-500 text-sm">No related videos found.</p>
-            }
-          </div>
-        </aside>
-      </div>
-    </div>
-  );
+  if (loading || error || !video) return <main className="folio" role="status">{error || (loading?'Loading video…':'Video unavailable.')}</main>;
+  return <main className="screening">
+    <section aria-label="Video player" className="projection"><VideoPlayer key={videoId+':'+(user?._id||'guest')} trackHistory={Boolean(user)} videoId={videoId} title={video.title} thumbnailUrl={video.thumbnail} storyboard={video.storyboard} hlsUrl={video.hlsUrl} mp4Url={video.mp4Url} duration={video.duration} startPosition={startPosition}/></section>
+    <div className="program"><article><h1>{video.title}</h1><div className="rail"><Link to={'/channel/'+video.channelId}>{channel?.name||video.creator}</Link><span>{views} views</span><button onClick={handleToggleSubscribe}>{subscribed?'Unsubscribe':'Subscribe'}</button></div>
+    <div className="rail"><button aria-pressed={liked} onClick={handleLike}>Like · {likes}</button><button aria-pressed={disliked} onClick={handleDislike}>Dislike · {dislikes}</button><button aria-pressed={savedWatchLater} onClick={handleToggleWatchLater}>{savedWatchLater?'Saved':'Watch later'}</button>{user&&<StartParty videoId={videoId}/>}</div>
+    <p>{video.description}</p>{user&&<WatchActions videoId={videoId} channelId={video.channelId} isVideoOwner={isVideoOwner}/>}
+    {isVideoOwner&&<button onClick={()=>{if(window.confirm('Delete this video?'))handleDeleteVideo()}} disabled={deleting}>Delete video</button>}{deleteError&&<p role="alert">{deleteError}</p>}
+    <section><h2>Discussion</h2><form className="rail" onSubmit={handleAddComment}><input className="input-control" aria-label="Comment" placeholder="Write a comment" value={commentText} onChange={e=>setCommentText(e.target.value)} required/><button disabled={commentSubmitting}>Post</button></form>
+    {commentError&&<p role="alert">{commentError}</p>}{commentsLoading?'Loading comments…':comments.length?comments.map(c=><CommentItem key={c._id} comment={c} currentUserId={user?._id||user?.id} isVideoOwner={isVideoOwner} onDelete={handleDeleteComment}/>):'No comments yet.'}</section></article>
+    <aside><h2>Watch next</h2>{relatedVideos.map(v=><VideoTile key={v.id} video={v}/>)}</aside></div></main>
 }
