@@ -1,81 +1,138 @@
 import { mergePlayed } from "../utils/playedRanges.js";
-import GuestView from "../../shared/models/guestView.model.js";
-import { verifyGatewaySignature } from "../../shared/utils/gatewaySignature.js";
-import { deleteCache } from "../utils/redisCache.js";
-import { getReactionCounts, withReactionCounts } from "../utils/reactionCounts.js";
 import asyncHandler from "../middlewares/tryCatch.js";
 import Video from "../../shared/models/video.model.js";
 import VideoInteraction from "../../shared/models/videoInteraction.model.js";
+import PlaybackTelemetry from "../../shared/models/playbackTelemetry.model.js";
 import Comment from "../../shared/models/comments.model.js";
 import Channel from "../../shared/models/channel.model.js";
 import User from "../../shared/models/user.model.js";
-import { recordEvent, withEventTransaction } from "../utils/outbox.js";
-import CreatorViews from "../../shared/models/creatorViews.model.js";
-import { createHash } from "node:crypto";
-import { findPlayableVideo, blockedChannelIds } from "../utils/videoAccess.js";
+import { publishEvent } from "../../shared/config/rabbitmq.js";
 
 
-const toggleReaction = (reaction, opposite, label) => asyncHandler(async (req, res) => {
-  const { userId } = req.auth;
-  const video = await findPlayableVideo(req.params.videoId, userId);
-  if (!video) return res.status(404).json({ message: "Video not found." });
+export const toggleLike = asyncHandler(async (req, res) => {
+  const { videoId } = req.params;
+  const userId = req.auth.userId;
 
-  const { interaction, counts, active } = await withEventTransaction(async (session) => {
-    const interaction = await VideoInteraction.findOneAndUpdate(
-      { userId, videoId: video._id },
-      [{ $set: {
-        [reaction]: { $not: [{ $ifNull: [`$${reaction}`, false] }] },
-        [opposite]: false,
-        reactionAt: "$$NOW",
-      } }],
-      { new: true, upsert: true, updatePipeline: true, session },
+  const previousInteraction = await VideoInteraction.findOne({ userId, videoId });
+  let videoInc = {};
+  let message = "";
+  
+  let newLikedState = true;
+  let newDislikedState = false;
+
+  if (!previousInteraction) {
+    videoInc.likes = 1;
+    message = "Video liked successfully";
+  } else if (previousInteraction.liked) {
+    newLikedState = false;
+    videoInc.likes = -1;
+    message = "Like removed successfully";
+  } else {
+    if (previousInteraction.disliked) {
+      videoInc.dislikes = -1;
+    }
+    videoInc.likes = 1;
+    message = "Video liked successfully";
+  }
+
+  const interaction = await VideoInteraction.findOneAndUpdate(
+    { userId, videoId },
+    { $set: { liked: newLikedState, disliked: newDislikedState, reactionAt: new Date() } },
+    { new: true, upsert: true }
+  );
+
+  let updatedVideo = await Video.findById(videoId);
+  if (!updatedVideo) return res.status(404).json({ message: "Video not found." });
+
+  if (Object.keys(videoInc).length > 0) {
+    updatedVideo = await Video.findByIdAndUpdate(
+      videoId,
+      { $inc: videoInc },
+      { new: true }
     );
-    const counts = await getReactionCounts(video._id, session);
-    const active = interaction[reaction];
-    await recordEvent(session, `video.${reaction}`, {
-      videoId: video.id, userId, [reaction]: active, ...counts, interactionId: interaction.id,
-    });
-    return { interaction, counts, active };
+  }
+
+  void publishEvent("video.liked", {
+    videoId,
+    userId,
+    liked: newLikedState,
+    likes: Math.max(0, updatedVideo.likes || 0),
+    dislikes: Math.max(0, updatedVideo.dislikes || 0),
+    interactionId: interaction?._id?.toString?.() || null,
   });
 
-  res.json({
+  res.status(200).json({
     success: true,
-    message: active ? `Video ${reaction} successfully` : `${label} removed successfully`,
-    ...counts,
+    message,
+    likes: Math.max(0, updatedVideo.likes || 0),
+    dislikes: Math.max(0, updatedVideo.dislikes || 0),
     interaction,
   });
 });
 
-export const toggleLike = toggleReaction("liked", "disliked", "Like");
-export const toggleDislike = toggleReaction("disliked", "liked", "Dislike");
+export const toggleDislike = asyncHandler(async (req, res) => {
+  const { videoId } = req.params;
+  const userId = req.auth.userId;
 
-const VIEW_WINDOW_MS = 60 * 60 * 1000;
-const GUEST_VIEW_WINDOW_MS = 10 * 60 * 1000;
+  const previousInteraction = await VideoInteraction.findOne({ userId, videoId });
+  let videoInc = {};
+  let message = "";
+  
+  let newLikedState = false;
+  let newDislikedState = true;
 
-const claimGuestView = async (req, videoId, now, session) => {
-  const viewer = req.get("x-guest-viewer");
-  if (!viewer || !/^[a-f0-9]{64}$/.test(viewer) || !verifyGatewaySignature({
-    userId: `guest:${viewer}`,
-    requestId: req.get("x-request-id"),
-    timestamp: req.get("x-gateway-timestamp"),
-    signature: req.get("x-guest-viewer-signature"),
-  })) return false;
+  if (!previousInteraction) {
+    videoInc.dislikes = 1;
+    message = "Video disliked successfully";
+  } else if (previousInteraction.disliked) {
+    newDislikedState = false;
+    videoInc.dislikes = -1;
+    message = "Dislike removed successfully";
+  } else {
+    if (previousInteraction.liked) {
+      videoInc.likes = -1;
+    }
+    videoInc.dislikes = 1;
+    message = "Video disliked successfully";
+  }
 
-  const previous = await GuestView.findOneAndUpdate(
-    { _id: `${videoId}:${viewer}` },
-    [{ $set: { expiresAt: {
-      $cond: [
-        { $lte: [{ $ifNull: ["$expiresAt", new Date(0)] }, now] },
-        new Date(+now + GUEST_VIEW_WINDOW_MS), "$expiresAt",
-      ],
-    } } }],
-    { new: false, upsert: true, updatePipeline: true, session },
+  const interaction = await VideoInteraction.findOneAndUpdate(
+    { userId, videoId },
+    { $set: { liked: newLikedState, disliked: newDislikedState, reactionAt: new Date() } },
+    { new: true, upsert: true }
   );
-  return !previous || previous.expiresAt <= now;
-};
+
+  let updatedVideo = await Video.findById(videoId);
+  if (!updatedVideo) return res.status(404).json({ message: "Video not found." });
+
+  if (Object.keys(videoInc).length > 0) {
+    updatedVideo = await Video.findByIdAndUpdate(
+      videoId,
+      { $inc: videoInc },
+      { new: true }
+    );
+  }
+
+  void publishEvent("video.disliked", {
+    videoId,
+    userId,
+    disliked: newDislikedState,
+    likes: Math.max(0, updatedVideo.likes || 0),
+    dislikes: Math.max(0, updatedVideo.dislikes || 0),
+    interactionId: interaction?._id?.toString?.() || null,
+  });
+
+  res.status(200).json({
+    success: true,
+    message,
+    likes: Math.max(0, updatedVideo.likes || 0),
+    dislikes: Math.max(0, updatedVideo.dislikes || 0),
+    interaction,
+  });
+});
 
 export const savePlayback = asyncHandler(async (req, res) => {
-  const { ranges, position, duration: reportedDuration, rangesOnly } = req.body || {};
+  const { ranges, position, duration: reportedDuration, feedId, feedPosition } = req.body || {};
   if (!Array.isArray(ranges) || ranges.length === 0 || ranges.length > 128 ||
       !Number.isFinite(position) || position < 0 ||
       !Number.isFinite(reportedDuration) || reportedDuration <= 0 ||
@@ -83,7 +140,7 @@ export const savePlayback = asyncHandler(async (req, res) => {
         pair.every(Number.isFinite) && pair[0] >= 0 && pair[1] > pair[0])) {
     return res.status(400).json({ message: "Invalid playback ranges" });
   }
-  const video = await findPlayableVideo(req.params.videoId, req.auth.userId);
+  const video = await Video.findById(req.params.videoId).select("duration").lean();
   if (!video) return res.sendStatus(404);
   const duration = video.duration || reportedDuration;
   const key = { userId: req.auth.userId, videoId: video._id };
@@ -96,15 +153,20 @@ export const savePlayback = asyncHandler(async (req, res) => {
     const query = { ...key, playbackRevision: revision ?? { $exists: false } };
     const progress = {
       playedRanges: merged, playedSeconds: seconds, playedDuration: duration,
+      lastWatchedPosition: Math.min(position, duration),
     };
     if (seconds > (previous?.playedSeconds || 0)) progress.playedAt = new Date();
-    const update = { $set: progress, $inc: { playbackRevision: 1 } };
-    if (rangesOnly !== true) {
-      progress.lastWatchedPosition = Math.min(position, duration);
-      update.$max = { watchPercentage: Math.min(100, 100 * seconds / duration) };
+    if (feedId && /^[0-9a-fA-F]{24}$/.test(String(feedId))) {
+      progress.attributionFeedId = feedId;
+      if (Number.isInteger(feedPosition) && feedPosition >= 0) {
+        progress.attributionPosition = feedPosition;
+      }
     }
     try {
-      const result = await VideoInteraction.updateOne(query, update, { upsert: !previous });
+      const result = await VideoInteraction.updateOne(query, {
+        $set: progress, $inc: { playbackRevision: 1 },
+        $max: { watchPercentage: Math.min(100, 100 * position / duration) },
+      }, { upsert: !previous });
       if (result.matchedCount || result.upsertedCount) return res.sendStatus(204);
     } catch (error) {
       if (error.code !== 11000) throw error;
@@ -113,79 +175,115 @@ export const savePlayback = asyncHandler(async (req, res) => {
   return res.status(409).json({ message: "Retry playback update" });
 });
 
+export const saveTelemetry = asyncHandler(async (req, res) => {
+  const { videoId } = req.params;
+  const {
+    ttffMs,
+    totalStallMs,
+    totalWatchDurationMs,
+    rebufferRatio,
+    startFailed,
+    browser,
+    resolution,
+    networkType,
+  } = req.body || {};
+
+  const userId = req.auth ? req.auth.userId : null;
+
+  await PlaybackTelemetry.create({
+    videoId,
+    userId,
+    ttffMs: Number(ttffMs) || 0,
+    totalStallMs: Number(totalStallMs) || 0,
+    totalWatchDurationMs: Number(totalWatchDurationMs) || 0,
+    rebufferRatio: Number(rebufferRatio) || 0,
+    startFailed: Boolean(startFailed),
+    browser: String(browser || "unknown").slice(0, 64),
+    resolution: String(resolution || "auto").slice(0, 32),
+    networkType: String(networkType || "unknown").slice(0, 32),
+  });
+
+  res.status(204).end();
+});
+
 export const incViewCount = asyncHandler(async (req, res) => {
-  const userId = req.auth?.userId ?? null;
-  const { watchPercentage, lastWatchedPosition, observedAt } = req.body ?? {};
-  const now = new Date();
-  const observedTime = observedAt === undefined ? now.getTime() : observedAt;
-  if (!Number.isFinite(watchPercentage) || watchPercentage <= 0 || watchPercentage > 100 ||
-      !Number.isFinite(lastWatchedPosition) || lastWatchedPosition < 0 ||
-      !Number.isFinite(observedTime) || observedTime < now.getTime() - 86_400_000 ||
-      observedTime > now.getTime() + 60_000) {
-    return res.status(400).json({ message: "Invalid watch progress." });
+  const { videoId } = req.params;
+  const userId = req.auth ? req.auth.userId : null;
+  const { watchPercentage = 30, lastWatchedPosition = 0 } = req.body; 
+
+  const video = await Video.findById(videoId);
+  if (!video) {
+    return res.status(404).json({ message: "Video not found." });
   }
 
-  const video = await findPlayableVideo(req.params.videoId, userId);
-  if (!video) return res.status(404).json({ message: "Video not found." });
+  let updatedVideo = video;
+  if (userId) {
+    let interaction = await VideoInteraction.findOne({ userId, videoId });
+    const now = new Date();
+    let shouldIncrementGlobalViews = false;
+    const ONE_HOUR_MS = 60 * 60 * 1000; 
 
-  const { views, shouldCount } = await withEventTransaction(async (session) => {
-    let shouldCount;
-    let progressChanged = false;
-    if (userId) {
-      const observed = new Date(observedTime);
-      const cutoff = new Date(now.getTime() - VIEW_WINDOW_MS);
-      const newer = { $gt: [observed, { $ifNull: ["$lastViewedAt", new Date(0)] }] };
-      const countView = { $and: [
-        newer,
-        { $lte: [{ $ifNull: ["$lastCountedAt", { $ifNull: ["$lastViewedAt", new Date(0)] }] }, cutoff] },
-      ] };
-      const position = video.duration > 0 ? Math.min(lastWatchedPosition, video.duration) : lastWatchedPosition;
-      const previous = await VideoInteraction.findOneAndUpdate({ userId, videoId: video._id }, [
-        { $set: {
-          viewCount: { $add: [{ $ifNull: ["$viewCount", 0] }, { $cond: [countView, 1, 0] }] },
-          lastCountedAt: { $cond: [countView, now, { $ifNull: ["$lastCountedAt", "$lastViewedAt"] }] },
-          lastViewedAt: { $cond: [newer, observed, "$lastViewedAt"] },
-          lastWatchedPosition: { $cond: [newer, position, "$lastWatchedPosition"] },
-          watchPercentage: { $cond: [newer, { $max: [{ $ifNull: ["$watchPercentage", 0] }, watchPercentage] }, "$watchPercentage"] },
-        } },
-      ], { new: false, updatePipeline: true, timestamps: false, upsert: true, session });
-      progressChanged = !previous?.lastViewedAt || observed > previous.lastViewedAt;
-      const lastCounted = previous?.lastCountedAt ?? previous?.lastViewedAt;
-      shouldCount = progressChanged && (!lastCounted || lastCounted <= cutoff);
+    if (!interaction) {
+      shouldIncrementGlobalViews = true;
+      interaction = await VideoInteraction.create({
+        userId,
+        videoId,
+        viewCount: 1,
+        watchPercentage,
+        lastWatchedPosition,
+        lastViewedAt: now,
+      });
     } else {
-      shouldCount = await claimGuestView(req, video.id, now, session);
+      // Always update position and percentage
+      if (watchPercentage > 0) {
+        interaction.watchPercentage = Math.max(interaction.watchPercentage, watchPercentage);
+      }
+      if (lastWatchedPosition > 0) {
+        interaction.lastWatchedPosition = Math.max(interaction.lastWatchedPosition, lastWatchedPosition);
+      }
+      const previousLastViewedAt = interaction.lastViewedAt;
+      interaction.lastViewedAt = now;
+      // Increment viewCount once per hour per video
+      if (!previousLastViewedAt || (now - new Date(previousLastViewedAt) > ONE_HOUR_MS)) {
+        shouldIncrementGlobalViews = true;
+        interaction.viewCount = (interaction.viewCount || 0) + 1;
+      }
+      await interaction.save();
     }
 
-    let views = video.views;
-    if (shouldCount) {
-      const updatedVideo = await Video.findByIdAndUpdate(video._id, { $inc: { views: 1 } }, { new: true, session });
-      if (!updatedVideo) throw Object.assign(new Error("Video not found."), { status: 404 });
-      views = updatedVideo.views;
-      const day = new Date(now.toISOString().slice(0, 10));
-      const fingerprint = userId || req.get("x-guest-viewer");
-      const bucket = createHash("sha256").update(fingerprint).digest()[0] % 16;
-      await CreatorViews.updateOne(
-        { _id: `${video.channelId}:${day.toISOString()}:${bucket}` },
-        { $setOnInsert: { channelId: video.channelId, day, bucket }, $inc: { views: 1 } },
-        { session, upsert: true },
+    if (shouldIncrementGlobalViews) {
+      updatedVideo = await Video.findByIdAndUpdate(
+        videoId,
+        { $inc: { views: 1 } },
+        { new: true }
       );
     }
-    if (shouldCount || progressChanged) {
-      await recordEvent(session, "video.viewed", {
-        videoId: video.id, userId, watchPercentage, lastWatchedPosition, views,
-      });
-    }
-    return { views, shouldCount };
+  } else {
+    // Guest view
+    updatedVideo = await Video.findByIdAndUpdate(
+      videoId,
+      { $inc: { views: 1 } },
+      { new: true }
+    );
+  }
+
+  void publishEvent("video.viewed", {
+    videoId,
+    userId,
+    watchPercentage,
+    lastWatchedPosition,
+    views: updatedVideo.views,
   });
-  if (shouldCount) await deleteCache(`streamwise:video:${video.id}`);
-  res.json({ success: true, views });
+
+  res.status(200).json({
+    success: true,
+    views: updatedVideo.views,
+  });
 });
 
 export const getComments = asyncHandler(async (req, res) => {
   const { videoId } = req.params;
-  const video = await findPlayableVideo(videoId, req.auth?.userId);
-  if (!video) return res.status(404).json({ message: "Video not found." });
-  const comments = await Comment.find({ videoId, deletedAt: null })
+  const comments = await Comment.find({ videoId })
     .populate("authorId", "name image")
     .sort({ createdAt: -1 });
 
@@ -206,20 +304,16 @@ export const addComment = asyncHandler(async (req, res) => {
   }
 
   // Verify the video exists before attaching a comment to it
-  const video = await findPlayableVideo(videoId, userId);
+  const video = await Video.findById(videoId).select('_id channelId');
   if (!video) {
     return res.status(404).json({ message: "Video not found." });
   }
 
-  const comment = await withEventTransaction(async session => {
-    const [item] = await Comment.create([{
+  const comment = await Comment.create({
     videoId,
     authorId: userId,
     body: commentText.trim(),
     parentCommentId,
-    }], {session});
-    await recordEvent(session,"video.commented",{videoId,userId,commentId:item.id});
-    return item;
   });
 
   const populatedComment = await Comment.findById(comment._id).populate("authorId", "name image");
@@ -303,9 +397,8 @@ export const getWatchLater = asyncHandler(async (req, res) => {
 
   const total = await VideoInteraction.countDocuments({ userId, watchLater: true });
 
-  const blocked = await blockedChannelIds(userId);
   const videos = interactions
-    .filter((i) => i.videoId && i.videoId.status !== "moderated" && !blocked.has(String(i.videoId.channelId?._id)))
+    .filter((i) => i.videoId)
     .map((i) => i.videoId);
 
   res.status(200).json({
@@ -313,7 +406,7 @@ export const getWatchLater = asyncHandler(async (req, res) => {
     page,
     totalPages: Math.ceil(total / limit),
     total,
-    videos: await withReactionCounts(videos),
+    videos,
   });
 });
 
@@ -352,9 +445,8 @@ export const getWatchHistory = asyncHandler(async (req, res) => {
 
   const total = await VideoInteraction.countDocuments({ userId, lastViewedAt: { $ne: null } });
 
-  const blocked = await blockedChannelIds(userId);
   const history = interactions
-    .filter((i) => i.videoId && i.videoId.status !== "moderated" && !blocked.has(String(i.videoId.channelId?._id)))
+    .filter((i) => i.videoId)
     .map((i) => ({
       ...i.videoId.toObject(),
       lastWatchedPosition: i.lastWatchedPosition,
@@ -367,7 +459,7 @@ export const getWatchHistory = asyncHandler(async (req, res) => {
     page,
     totalPages: Math.ceil(total / limit),
     total,
-    history: await withReactionCounts(history),
+    history,
   });
 });
 
@@ -387,9 +479,8 @@ export const getContinueWatching = asyncHandler(async (req, res) => {
       populate: { path: "channelId", select: "name image handle subscribersCount" },
     });
 
-  const blocked = await blockedChannelIds(userId);
   const continueWatching = interactions
-    .filter((i) => i.videoId && i.videoId.status !== "moderated" && !blocked.has(String(i.videoId.channelId?._id)))
+    .filter((i) => i.videoId)
     .map((i) => ({
       ...i.videoId.toObject(),
       lastWatchedPosition: i.lastWatchedPosition,
@@ -398,6 +489,6 @@ export const getContinueWatching = asyncHandler(async (req, res) => {
 
   res.status(200).json({
     success: true,
-    continueWatching: await withReactionCounts(continueWatching),
+    continueWatching,
   });
 });

@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Navbar } from '../../components/layout/Navbar/Navbar';
-import './home-editorial.css';
+import { CategoryFilter } from '../../components/home/CategoryFilter/CategoryFilter';
+import { HeroCard } from '../../components/home/HeroCard/HeroCard';
 import { VideoCard } from '../../components/home/VideoCard/VideoCard';
-
-import { normalizeVideo, videoService } from '../../services/videoService';
+import { CreatorsRow } from '../../components/home/CreatorsRow/CreatorsRow';
+import { videoService } from '../../services/videoService';
 import { interactionService } from '../../services/interactionService';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -27,6 +28,15 @@ const EmptyState = ({ message }) => (
   </div>
 );
 
+const formatDuration = (seconds) => {
+  if (!seconds) return '';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, '0')}`;
+};
+
 export const Home = () => {
   const { user, loading: authLoading } = useAuth();
   const [trendingVideos, setTrendingVideos] = useState([]);
@@ -36,7 +46,6 @@ export const Home = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
-  const searchVersion = useRef(0);
   const [isSearchMode, setIsSearchMode] = useState(false);
 
   const account = user?._id || user?.id || '';
@@ -104,7 +113,6 @@ export const Home = () => {
   }, [user]);
 
   const handleSearch = async (q) => {
-    const version = ++searchVersion.current;
     setSearchQuery(q);
     if (!q.trim()) {
       setIsSearchMode(false);
@@ -113,73 +121,150 @@ export const Home = () => {
     }
     setIsSearchMode(true);
     setSearchLoading(true);
-    setSearchResults([]);
     try {
       const data = await videoService.search(q, { limit: 12 });
-      if (version === searchVersion.current) setSearchResults(data.videos || []);
+      setSearchResults(data.videos || []);
     } catch (err) {
       console.error('Search failed:', err);
     } finally {
-      if (version === searchVersion.current) setSearchLoading(false);
+      setSearchLoading(false);
     }
   };
 
-  const featured = continueWatching[0] ? normalizeVideo(continueWatching[0])
-    : trendingVideos[0] || popularVideos[0];
-  const trending = trendingVideos.filter(video => video.id !== featured?.id).slice(0, 4);
-  const popular = popularVideos.slice(0, 4);
-  const shelf = (id, title, videos, loading, empty) => (
-    <section id={id} className="sw-shelf" aria-labelledby={id + '-title'}>
-      <h2 id={id + '-title'}>{title}</h2>
-      <div className="sw-grid">
-        {loading ? Array.from({ length: 4 }, (_, i) => <VideoSkeleton key={i} />)
-          : videos.length ? videos.map(video => <VideoCard key={video.id} {...video} />)
-          : <EmptyState message={empty} />}
-      </div>
-    </section>
-  );
+  const featuredVideo = trendingVideos[0] || null;
+  const remainingTrending = trendingVideos.slice(1, 5);
+  const mostViewed = popularVideos.slice(0, 4);
 
   return (
-    <div className="sw-home">
+    <div className="w-full min-h-screen bg-[#0B0D12] text-white selection:bg-cyan-400/30 font-sans">
       <Navbar onSearch={handleSearch} />
-      <main className="sw-wrap">
-        {isSearchMode ? shelf('results', `Results for “${searchQuery}”`, searchResults, searchLoading, 'No matching videos.')
-          : <>
-            <nav aria-label="Browse videos" className="sw-sections">
-              <a href="#discover" aria-current="location">Discover</a>
-              <a href="#trending">Trending</a>
-              <a href="#popular">Most viewed</a>
-              {user && <Link to="/subscriptions">Subscriptions</Link>}
-            </nav>
-            <section id="discover" className="sw-feature" aria-labelledby="sw-feature-title">
-              <div className="sw-feature-copy">
-                <p className="sw-eyebrow">{continueWatching.length ? 'Continue watching' : featured ? 'Featured video' : 'Streamwise'}</p>
-                <h1 id="sw-feature-title">{featured?.title || 'Find your next watch.'}</h1>
-                <p>{featured ? [featured.creator, featured.duration].filter(Boolean).join(' · ') : 'Explore videos from independent creators.'}</p>
-                {featured ? <Link className="sw-cta" to={`/watch/${featured.id}`}>{continueWatching.length ? 'Resume video' : 'Watch video'}</Link>
-                  : <a className="sw-cta" href="#trending">Browse videos</a>}
-              </div>
-              <div className="sw-art" aria-hidden="true">
-                {featured?.thumbnail ? <img src={featured.thumbnail} alt="" onError={event => { event.currentTarget.hidden = true; }} />
-                  : <div className="sw-reel"><i/><i/><i/><i/><span/></div>}
+
+      <main className="pb-24">
+        {!isSearchMode && <CategoryFilter />}
+
+        <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
+
+          {/* ── Search Results ── */}
+          {isSearchMode ? (
+            <section className="my-8">
+              <h2 className="text-xl md:text-2xl font-bold text-white mb-6">
+                {searchLoading ? 'Searching...' : `Results for "${searchQuery}"`}
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {searchLoading
+                  ? Array(8).fill(0).map((_, i) => <VideoSkeleton key={i} />)
+                  : searchResults.length > 0
+                    ? searchResults.map(video => <VideoCard key={video.id} {...video} />)
+                    : <EmptyState message={`No results found for "${searchQuery}"`} />
+                }
               </div>
             </section>
-            {feed?.account === account && feed.videos.length > 0 && (
-              <section className="sw-shelf" aria-labelledby="sw-feed-title">
-                <h2 id="sw-feed-title">For You</h2>
-                <div ref={feedGrid} className="sw-grid">
-                  {feed.videos.map((video, position) => (
-                    <div key={video.id} data-position={position}><VideoCard {...video} /></div>
-                  ))}
+          ) : (
+            <>
+              {/* ── Hero Card ── */}
+              {trendingLoading
+                ? <div className="w-full aspect-[21/9] max-h-[420px] rounded-2xl bg-white/5 animate-pulse mt-6" />
+                : <HeroCard 
+                    video={continueWatching.length > 0 ? continueWatching[0] : featuredVideo} 
+                    isContinueWatching={continueWatching.length > 0} 
+                  />
+              }
+
+
+
+              {feed?.account === account && feed.videos.length > 0 && (
+                <section className="my-12">
+                  <h2 className="text-xl font-bold mb-6">For You</h2>
+                  <div ref={feedGrid} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                    {feed.videos.map((video, position) => (
+                      <div key={video.id} data-position={position}>
+                        <VideoCard {...video} feedId={feed.feedId} feedPosition={position} />
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* ── Trending Now ── */}
+              <section className="my-12 md:my-16">
+                <h2 className="text-xl md:text-2xl font-bold text-white mb-6 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]"></span>
+                  Trending Now
+                </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                  {trendingLoading
+                    ? Array(4).fill(0).map((_, i) => <VideoSkeleton key={i} />)
+                    : remainingTrending.length > 0
+                      ? remainingTrending.map((video, i) => (
+                          <VideoCard key={video.id} {...video} rank={i + 1} />
+                        ))
+                      : <EmptyState message="No trending videos right now. Check back later!" />
+                  }
                 </div>
               </section>
-            )}
-            {shelf('trending', 'Trending now', trending, trendingLoading, featured ? 'More videos will appear here as they trend.' : 'No trending videos yet.')}
-            {shelf('popular', 'Most viewed', popular, popularLoading, 'No popular videos yet.')}
-          </>}
+
+              {/* ── Most Viewed & Creators ── */}
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 xl:gap-12 my-12 md:my-16">
+                <section className="xl:col-span-2">
+                  <h2 className="text-xl md:text-2xl font-bold text-white mb-6">Most Viewed</h2>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                    {popularLoading
+                      ? Array(4).fill(0).map((_, i) => <VideoSkeleton key={i} />)
+                      : popularVideos.slice(0, 4).length > 0
+                        ? popularVideos.slice(0, 4).map(video => (
+                            <VideoCard key={video.id} {...video} />
+                          ))
+                        : <EmptyState message="No popular videos yet." />
+                    }
+                  </div>
+                </section>
+
+                <section className="xl:col-span-1">
+                  <h2 className="text-xl md:text-2xl font-bold text-white mb-6">Top This Week</h2>
+                  <div className="flex flex-col gap-3">
+                    {popularLoading
+                      ? Array(4).fill(0).map((_, i) => (
+                          <div key={i} className="h-20 rounded-xl bg-white/5 animate-pulse" />
+                        ))
+                      : mostViewed.length > 0
+                        ? mostViewed.map(video => (
+                            <div
+                              key={video.id}
+                              className="group flex items-center gap-4 bg-[#151923] rounded-2xl p-3 border border-white/5 hover:border-cyan-400/50 transition-colors cursor-pointer"
+                            >
+                              <div className="relative w-28 aspect-video rounded-xl overflow-hidden shrink-0">
+                                <img
+                                  src={video.thumbnail}
+                                  alt={video.title}
+                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                  onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=Video&background=1A1F2B&color=fff`; }}
+                                />
+                              </div>
+                              <div className="flex flex-col py-1 min-w-0">
+                                <h3 className="text-white font-semibold text-sm leading-snug line-clamp-2 group-hover:text-cyan-300 transition-colors">
+                                  {video.title}
+                                </h3>
+                                <div className="mt-1 text-xs text-gray-400">
+                                  <div>{video.creator}</div>
+                                  <div className="text-cyan-400 mt-0.5">{video.views} views</div>
+                                </div>
+                              </div>
+                            </div>
+                          ))
+                        : <EmptyState message="No videos yet." />
+                    }
+                  </div>
+                </section>
+              </div>
+
+              <CreatorsRow />
+            </>
+          )}
+        </div>
       </main>
     </div>
   );
 };
 
 export default Home;
+

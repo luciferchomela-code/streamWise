@@ -24,6 +24,7 @@ router.get("/:videoId/status", isAuth, proxy);
 // Public / Guest Allowed
 router.get("/:videoId/comments", optionalAuth, proxy);
 router.post("/:videoId/view", optionalAuth, proxy);
+router.post("/:videoId/telemetry", optionalAuth, proxy);
 
 // Protected Interactions (Require Login)
 router.post("/:videoId/playback", isAuth, proxy);
