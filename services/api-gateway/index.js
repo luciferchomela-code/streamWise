@@ -115,6 +115,9 @@ app.use("/api/interactions", interactionRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/stream", streamRoutes);   // GET /api/stream/:videoId
 
+const partyProxy = createProxy(process.env.VIDEO_METADATA_SERVICE_URL || "http://localhost:5002", "WatchParty service");
+app.use("/api/parties", optionalAuth, partyProxy);
+
 app.use((req, res) => {
   res.status(404).json({ message: "Route not found", requestId: req.requestId });
 });

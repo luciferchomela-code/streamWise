@@ -4,6 +4,7 @@ import cors from "cors";
 import videoRoutes from "./routes/video.routes.js";
 import channelRoutes from "./routes/channel.routes.js";
 import interactionRoutes from "./routes/interaction.routes.js";
+import watchPartyRoutes from "./routes/watchParty.routes.js";
 import connectDB from "../shared/config/db.js";
 import "../shared/models/user.model.js";
 
@@ -21,6 +22,7 @@ app.get("/health", (req, res) => {
 app.use("/api/videos", videoRoutes);
 app.use("/api/channels", channelRoutes);
 app.use("/api/interactions", interactionRoutes);
+app.use("/api/parties", watchPartyRoutes);
 app.use((err, req, res, next) => {
     console.error(`[Video-Metadata Error]: ${err.message}`);
     res.status(err.status || 500).json({
