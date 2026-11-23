@@ -152,6 +152,7 @@ services:
     env_file: .env
     environment:
       PORT: 8000
+      MONGO_URL: mongodb://mongo:27017
       MONGO_DB_NAME: streamwise
     depends_on:
       mongo:

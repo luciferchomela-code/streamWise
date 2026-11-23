@@ -17,7 +17,7 @@ from pymongo import MongoClient
 from ranker import rank
 
 app = FastAPI(title="StreamWise recommendations")
-db = MongoClient(os.environ["MONGO_URL"], tz_aware=True, serverSelectionTimeoutMS=3000)[
+db = MongoClient(os.getenv("MONGO_URL", "mongodb://localhost:27017"), tz_aware=True, serverSelectionTimeoutMS=3000)[
     os.getenv("MONGO_DB_NAME", "streamwise")
 ]
 secret = os.getenv("GATEWAY_SECRET")
@@ -114,6 +114,8 @@ class Impression(BaseModel):
 @app.post("/api/recommendations/impressions", status_code=204)
 def impression(request: Request, event: Impression):
     user = identity(request)
+    if not user:
+        raise HTTPException(401, "Authentication required")
     match = db.recommendationfeeds.update_one(
         {"_id": ObjectId(event.feedId), "userId": user,
          f"videoIds.{event.position}": {"$exists": True}},
