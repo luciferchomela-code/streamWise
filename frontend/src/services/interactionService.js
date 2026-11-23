@@ -35,6 +35,17 @@ export const interactionService = {
     if (!res.ok) throw new Error('Playback update failed');
   },
 
+  saveTelemetry: (videoId, telemetry) => {
+    const url = `${API_BASE_URL}/interactions/${videoId}/telemetry`;
+    const payload = JSON.stringify(telemetry);
+    if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
+      const blob = new Blob([payload], { type: 'application/json' });
+      navigator.sendBeacon(url, blob);
+    } else {
+      void apiFetch(url, { method: 'POST', body: payload, keepalive: true }).catch(() => {});
+    }
+  },
+
   getComments: async (videoId) => {
     const res = await apiFetch(`${API_BASE_URL}/interactions/${videoId}/comments`);
     const data = await res.json().catch(() => ({}));

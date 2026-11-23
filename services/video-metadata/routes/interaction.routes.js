@@ -12,6 +12,7 @@ import {
   checkVideoInteractionStatus,
   getWatchHistory,
   getContinueWatching,
+  saveTelemetry,
 } from "../controllers/interaction.controller.js";
 import { requireGatewayIdentity } from "../middlewares/requireGatewayIdentity.js";
 import { optionalGatewayIdentity } from "../middlewares/optionalGatewayIdentity.js";
@@ -30,6 +31,7 @@ router.get("/:videoId/status", requireGatewayIdentity, checkVideoInteractionStat
 // Public / Guest Allowed
 router.get("/:videoId/comments", optionalGatewayIdentity, getComments);
 router.post("/:videoId/view", optionalGatewayIdentity, incViewCount);
+router.post("/:videoId/telemetry", optionalGatewayIdentity, saveTelemetry);
 
 // Protected Interactions (Require Login)
 router.post("/:videoId/playback", requireGatewayIdentity, savePlayback);

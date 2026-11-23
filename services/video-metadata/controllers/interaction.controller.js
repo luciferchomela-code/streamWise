@@ -2,6 +2,7 @@ import { mergePlayed } from "../utils/playedRanges.js";
 import asyncHandler from "../middlewares/tryCatch.js";
 import Video from "../../shared/models/video.model.js";
 import VideoInteraction from "../../shared/models/videoInteraction.model.js";
+import PlaybackTelemetry from "../../shared/models/playbackTelemetry.model.js";
 import Comment from "../../shared/models/comments.model.js";
 import Channel from "../../shared/models/channel.model.js";
 import User from "../../shared/models/user.model.js";
@@ -172,6 +173,37 @@ export const savePlayback = asyncHandler(async (req, res) => {
     }
   }
   return res.status(409).json({ message: "Retry playback update" });
+});
+
+export const saveTelemetry = asyncHandler(async (req, res) => {
+  const { videoId } = req.params;
+  const {
+    ttffMs,
+    totalStallMs,
+    totalWatchDurationMs,
+    rebufferRatio,
+    startFailed,
+    browser,
+    resolution,
+    networkType,
+  } = req.body || {};
+
+  const userId = req.auth ? req.auth.userId : null;
+
+  await PlaybackTelemetry.create({
+    videoId,
+    userId,
+    ttffMs: Number(ttffMs) || 0,
+    totalStallMs: Number(totalStallMs) || 0,
+    totalWatchDurationMs: Number(totalWatchDurationMs) || 0,
+    rebufferRatio: Number(rebufferRatio) || 0,
+    startFailed: Boolean(startFailed),
+    browser: String(browser || "unknown").slice(0, 64),
+    resolution: String(resolution || "auto").slice(0, 32),
+    networkType: String(networkType || "unknown").slice(0, 32),
+  });
+
+  res.status(204).end();
 });
 
 export const incViewCount = asyncHandler(async (req, res) => {

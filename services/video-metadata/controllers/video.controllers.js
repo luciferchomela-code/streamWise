@@ -96,6 +96,8 @@ export const finalizeVideo = asyncHandler(async (req, res) => {
       .replace(/\.[a-zA-Z0-9]+(?:\?.*)?$/, ".m3u8");
   }
 
+  const wasAlreadyFinalized = video.status === "ready" || video.status === "published";
+
   video.videoUrl = videoUrl;
   video.hlsUrl = finalHlsUrl || null;
   video.publicId = publicId;
@@ -111,16 +113,19 @@ export const finalizeVideo = asyncHandler(async (req, res) => {
     deleteCacheByPrefix(channelVideosPrefix(video.channelId.toString())),
   ]);
 
-  void publishEvent("video.finalized", {
-    videoId: video._id.toString(),
-    channelId: video.channelId.toString(),
-    ownerId: channel.ownerId.toString(),
-    title: video.title,
-    visibility: video.visibility,
-    publicId: video.publicId,
-    duration: video.duration,
-    status: "ready",
-  });
+  if (!wasAlreadyFinalized) {
+    void publishEvent("video.finalized", {
+      videoId: video._id.toString(),
+      channelId: video.channelId.toString(),
+      ownerId: channel.ownerId.toString(),
+      title: video.title,
+      visibility: video.visibility,
+      publicId: video.publicId,
+      duration: video.duration,
+      status: "ready",
+      deduplicationId: `video_finalized_${video._id.toString()}`,
+    });
+  }
 
   res.status(200).json({ success: true, video });
 });

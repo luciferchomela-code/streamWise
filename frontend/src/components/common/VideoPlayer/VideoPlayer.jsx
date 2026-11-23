@@ -180,6 +180,123 @@ export const VideoPlayer = ({
     }));
   }, [videoId, signedIn, feedId, feedPosition]);
 
+  // QoE Telemetry (TTFF, Rebuffer Ratio, Video Start Failure, Device/Resolution)
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el || !videoId) return;
+
+    let playIntentTime = 0;
+    let ttffMs = 0;
+    let firstFrameFired = false;
+    let stallStartTime = 0;
+    let totalStallMs = 0;
+    let watchStartTime = 0;
+    let totalWatchMs = 0;
+    let startFailed = false;
+
+    const onPlay = () => {
+      if (!firstFrameFired && playIntentTime === 0) {
+        playIntentTime = performance.now();
+      }
+      watchStartTime = performance.now();
+    };
+
+    const onPlaying = () => {
+      if (!firstFrameFired && playIntentTime > 0) {
+        ttffMs = Math.round(performance.now() - playIntentTime);
+        firstFrameFired = true;
+      }
+      if (stallStartTime > 0) {
+        totalStallMs += Math.round(performance.now() - stallStartTime);
+        stallStartTime = 0;
+      }
+    };
+
+    const onWaiting = () => {
+      if (firstFrameFired && stallStartTime === 0) {
+        stallStartTime = performance.now();
+      }
+    };
+
+    const onPause = () => {
+      if (watchStartTime > 0) {
+        totalWatchMs += Math.round(performance.now() - watchStartTime);
+        watchStartTime = 0;
+      }
+      if (stallStartTime > 0) {
+        totalStallMs += Math.round(performance.now() - stallStartTime);
+        stallStartTime = 0;
+      }
+    };
+
+    const onError = () => {
+      if (!firstFrameFired) {
+        startFailed = true;
+      }
+    };
+
+    const startFailTimeout = setTimeout(() => {
+      if (playIntentTime > 0 && !firstFrameFired) {
+        startFailed = true;
+      }
+    }, 12000);
+
+    el.addEventListener('play', onPlay);
+    el.addEventListener('playing', onPlaying);
+    el.addEventListener('waiting', onWaiting);
+    el.addEventListener('pause', onPause);
+    el.addEventListener('error', onError);
+
+    const flushTelemetry = () => {
+      clearTimeout(startFailTimeout);
+      if (watchStartTime > 0) {
+        totalWatchMs += Math.round(performance.now() - watchStartTime);
+        watchStartTime = 0;
+      }
+      if (stallStartTime > 0) {
+        totalStallMs += Math.round(performance.now() - stallStartTime);
+        stallStartTime = 0;
+      }
+      if (playIntentTime === 0 && totalWatchMs === 0 && !startFailed) return;
+
+      const rebufferRatio = totalWatchMs > 0 ? parseFloat((totalStallMs / totalWatchMs).toFixed(4)) : 0;
+      const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+      let browser = 'Other';
+      if (/edg/i.test(ua)) browser = 'Edge';
+      else if (/chrome|crios/i.test(ua)) browser = 'Chrome';
+      else if (/firefox|fxios/i.test(ua)) browser = 'Firefox';
+      else if (/safari/i.test(ua)) browser = 'Safari';
+
+      const resolution = el.videoWidth && el.videoHeight ? `${el.videoWidth}x${el.videoHeight}` : 'auto';
+      const networkType = (navigator.connection && navigator.connection.effectiveType) || 'unknown';
+
+      interactionService.saveTelemetry(videoId, {
+        ttffMs,
+        totalStallMs,
+        totalWatchDurationMs: totalWatchMs,
+        rebufferRatio,
+        startFailed,
+        browser,
+        resolution,
+        networkType,
+      });
+    };
+
+    const onPageHide = () => flushTelemetry();
+    window.addEventListener('pagehide', onPageHide);
+
+    return () => {
+      flushTelemetry();
+      clearTimeout(startFailTimeout);
+      el.removeEventListener('play', onPlay);
+      el.removeEventListener('playing', onPlaying);
+      el.removeEventListener('waiting', onWaiting);
+      el.removeEventListener('pause', onPause);
+      el.removeEventListener('error', onError);
+      window.removeEventListener('pagehide', onPageHide);
+    };
+  }, [videoId]);
+
   // Controls Auto-hide
   useEffect(() => {
     let timeout;
