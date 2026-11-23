@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Navbar } from '../../components/layout/Navbar/Navbar';
 import { CategoryFilter } from '../../components/home/CategoryFilter/CategoryFilter';
@@ -38,7 +38,7 @@ const formatDuration = (seconds) => {
 };
 
 export const Home = () => {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [trendingVideos, setTrendingVideos] = useState([]);
   const [popularVideos, setPopularVideos] = useState([]);
   const [trendingLoading, setTrendingLoading] = useState(true);
@@ -47,6 +47,33 @@ export const Home = () => {
   const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [isSearchMode, setIsSearchMode] = useState(false);
+
+  const account = user?._id || user?.id || '';
+  const [feed, setFeed] = useState(null);
+  useEffect(() => {
+    if (authLoading) return;
+    let active = true;
+    videoService.getFeed().then(data => {
+      if (active) setFeed({ account, ...data });
+    }).catch(() => {
+      if (active) setFeed(null);
+    });
+    return () => { active = false; };
+  }, [account, authLoading]);
+
+  const feedGrid = useRef(null);
+  useEffect(() => {
+    if (!feedGrid.current || !feed?.feedId || !window.IntersectionObserver) return;
+    const observer = new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        if (entry.intersectionRatio < 0.5) continue;
+        observer.unobserve(entry.target);
+        videoService.recordImpression(feed.feedId, Number(entry.target.dataset.position)).catch(() => {});
+      }
+    }, { threshold: 0.5 });
+    for (const card of feedGrid.current.children) observer.observe(card);
+    return () => observer.disconnect();
+  }, [feed, account, isSearchMode]);
 
   // Continue Watching
   const [continueWatching, setContinueWatching] = useState([]);
@@ -144,6 +171,17 @@ export const Home = () => {
               }
 
 
+
+              {feed?.account === account && feed.videos.length > 0 && (
+                <section className="my-12">
+                  <h2 className="text-xl font-bold mb-6">For You</h2>
+                  <div ref={feedGrid} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                    {feed.videos.map((video, position) => (
+                      <div key={video.id} data-position={position}><VideoCard {...video} /></div>
+                    ))}
+                  </div>
+                </section>
+              )}
 
               {/* ── Trending Now ── */}
               <section className="my-12 md:my-16">

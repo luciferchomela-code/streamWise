@@ -126,6 +126,7 @@ services:
       PORT: 5000
       REDIS_URL: redis://redis:6379
       USE_REDIS: "true"
+      RECOMMENDATION_SERVICE_URL: http://recommendation-service:8000
       AUTH_SERVICE_URL: http://auth-service:5001
       VIDEO_METADATA_SERVICE_URL: http://video-metadata:5002
       UPLOAD_SERVICE_URL: http://upload:5003
@@ -149,14 +150,11 @@ services:
       context: ./services/recommendation-service
     restart: unless-stopped
     env_file: .env
-    ports:
-      - "8000:8000"
     environment:
       PORT: 8000
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
-      RABBITMQ_EXCHANGE: youtube.events
+      MONGO_DB_NAME: streamwise
     depends_on:
-      rabbitmq:
+      mongo:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"from urllib.request import urlopen; exit(0 if urlopen('http://localhost:8000/health').status == 200 else 1)\""]

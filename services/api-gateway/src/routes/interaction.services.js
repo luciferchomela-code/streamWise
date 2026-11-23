@@ -26,6 +26,7 @@ router.get("/:videoId/comments", optionalAuth, proxy);
 router.post("/:videoId/view", optionalAuth, proxy);
 
 // Protected Interactions (Require Login)
+router.post("/:videoId/playback", isAuth, proxy);
 router.post("/:videoId/like", isAuth, proxy);
 router.post("/:videoId/dislike", isAuth, proxy);
 router.post("/:videoId/comment", isAuth, proxy);

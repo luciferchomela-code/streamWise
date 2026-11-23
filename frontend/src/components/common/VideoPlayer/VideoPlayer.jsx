@@ -1,3 +1,4 @@
+import { trackPlayback } from '../../../services/trackPlayback';
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import Hls from 'hls.js';
 import { interactionService } from '../../../services/interactionService';
@@ -13,6 +14,7 @@ const formatTime = (seconds) => {
 
 export const VideoPlayer = ({
   videoId,
+  signedIn,
   title,
   thumbnailUrl,
   hlsUrl,
@@ -23,7 +25,7 @@ export const VideoPlayer = ({
   const videoRef = useRef(null);
   const containerRef = useRef(null);
   const hlsRef = useRef(null);
-  const progressIntervalRef = useRef(null);
+
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
@@ -41,7 +43,7 @@ export const VideoPlayer = ({
   const [levels, setLevels] = useState([]);
   const [currentLevel, setCurrentLevel] = useState(-1);
 
-  const [milestonesTracked, setMilestonesTracked] = useState(new Set());
+
 
   // Initialization & HLS attachment
   useEffect(() => {
@@ -160,38 +162,17 @@ export const VideoPlayer = ({
     };
   }, []);
 
-  // Milestone Tracking (Backend Analytics)
   useEffect(() => {
-    if (!videoId || !durationTime) return;
+    const el = videoRef.current;
+    if (!el || !videoId) return;
+    if (!signedIn) {
+      const onPlay = () => interactionService.incrementView(videoId, 0, 0).catch(() => {});
+      el.addEventListener('playing', onPlay, { once: true });
+      return () => el.removeEventListener('playing', onPlay);
+    }
 
-    const trackMilestone = async (percentage) => {
-      if (milestonesTracked.has(percentage)) return;
-      try {
-        await interactionService.incrementView(videoId, percentage, currentTime);
-        setMilestonesTracked((prev) => new Set(prev).add(percentage));
-      } catch (e) {
-        // Silent failure for analytics
-      }
-    };
-
-    const pct = (currentTime / durationTime) * 100;
-    if (pct > 1 && !milestonesTracked.has(1)) trackMilestone(1); // Start
-    if (pct >= 25 && !milestonesTracked.has(25)) trackMilestone(25);
-    if (pct >= 50 && !milestonesTracked.has(50)) trackMilestone(50);
-    if (pct >= 75 && !milestonesTracked.has(75)) trackMilestone(75);
-    if (pct >= 90 && !milestonesTracked.has(90)) trackMilestone(90);
-    if (pct >= 99 && !milestonesTracked.has(100)) trackMilestone(100);
-  }, [currentTime, durationTime, videoId, milestonesTracked]);
-
-  // Periodic Watch Progress Save (every 10s)
-  useEffect(() => {
-    if (!isPlaying || !videoId || durationTime === 0) return;
-    const interval = setInterval(() => {
-      const pct = (currentTime / durationTime) * 100;
-      interactionService.incrementView(videoId, pct, currentTime).catch(() => {});
-    }, 10000);
-    return () => clearInterval(interval);
-  }, [isPlaying, currentTime, durationTime, videoId]);
+    return trackPlayback(el, body => interactionService.savePlayback(videoId, body));
+  }, [videoId, signedIn]);
 
   // Controls Auto-hide
   useEffect(() => {

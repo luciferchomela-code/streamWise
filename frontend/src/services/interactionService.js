@@ -28,6 +28,13 @@ export const interactionService = {
     return data;
   },
 
+  savePlayback: async (videoId, body) => {
+    const res = await apiFetch(`${API_BASE_URL}/interactions/${videoId}/playback`, {
+      method: 'POST', body: JSON.stringify(body), keepalive: true,
+    });
+    if (!res.ok) throw new Error('Playback update failed');
+  },
+
   getComments: async (videoId) => {
     const res = await apiFetch(`${API_BASE_URL}/interactions/${videoId}/comments`);
     const data = await res.json().catch(() => ({}));

@@ -41,6 +41,12 @@ const videoInteractionSchema = new Schema(
       min: 0,
       max: 100,
     },
+    playedRanges: { type: [[Number]], default: undefined, select: false },
+    playedSeconds: { type: Number, min: 0 },
+    playedDuration: { type: Number, min: 0 },
+    playbackRevision: { type: Number },
+    reactionAt: { type: Date },
+    playedAt: { type: Date },
     lastWatchedPosition: {
       type: Number,
       default: 0,
