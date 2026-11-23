@@ -15,7 +15,7 @@ function Directory(){
 export default function Navigation(){
   const {user}=useAuth(), location=useLocation();
   return <><header className="mast"><Link className="wordmark" to="/"><i aria-hidden="true"/>StreamWise</Link>
-    <SearchBox key={location.key} initialQuery={new URLSearchParams(location.search).get('q')||''}/> 
+    <SearchBox key={location.key} initialQuery={new URLSearchParams(location.search).get('q')||''}/>
     {user?<><Bell/><Link to="/profile">Account</Link></>:<Link to="/login">Sign in</Link>}</header>
     <aside className="directory"><nav aria-label="Main"><Directory/></nav></aside>
     <details key={location.key} className="mobile-directory"><summary>Browse StreamWise</summary><nav><Directory/></nav></details></>;

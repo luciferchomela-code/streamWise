@@ -39,20 +39,32 @@ vector_cache = OrderedDict()
 
 def encode(videos):
     texts = []
-    for video in videos:
+    text_to_idx = []
+    matrix_rows = [None] * len(videos)
+
+    for idx, video in enumerate(videos):
+        emb = video.get("embedding")
+        if isinstance(emb, (list, tuple)) and len(emb) == 384:
+            matrix_rows[idx] = np.asarray(emb, dtype=np.float32)
+            continue
         fields = [video.get("title"), " ".join(video.get("tags") or []),
                   video.get("category"), (video.get("description") or "")[:1200]]
-        texts.append(" ".join(filter(None, fields)) or "video")
-    with embedding_lock:
-        missing = list(dict.fromkeys(text for text in texts if text not in vector_cache))
-        if missing:
-            vector_cache.update(zip(missing, model().embed(missing), strict=True))
-        rows = [vector_cache[text] for text in texts]
-        for text in texts:
-            vector_cache.move_to_end(text)
-        while len(vector_cache) > 8192:
-            vector_cache.popitem(last=False)
-    matrix = np.asarray(rows, dtype=np.float32)
+        txt = " ".join(filter(None, fields)) or "video"
+        texts.append(txt)
+        text_to_idx.append(idx)
+
+    if texts:
+        with embedding_lock:
+            missing = list(dict.fromkeys(text for text in texts if text not in vector_cache))
+            if missing:
+                vector_cache.update(zip(missing, model().embed(missing), strict=True))
+            for txt, idx in zip(texts, text_to_idx):
+                matrix_rows[idx] = vector_cache[txt]
+                vector_cache.move_to_end(txt)
+            while len(vector_cache) > 8192:
+                vector_cache.popitem(last=False)
+
+    matrix = np.asarray(matrix_rows, dtype=np.float32)
     return matrix / np.maximum(np.linalg.norm(matrix, axis=1, keepdims=True), 1e-9)
 
 
@@ -80,14 +92,37 @@ def health():
 def feed(request: Request, response: Response, limit: int = Query(12, ge=1, le=50)):
     user = identity(request)
     response.headers["Cache-Control"] = "private, no-store"
-    fields = "title description tags category duration views channelId createdAt thumbnailUrl".split()
-    eligible = {"visibility": "public", "status": {"$in": ["ready", "published"]}}
+    fields = "title description tags category duration views channelId createdAt thumbnailUrl embedding".split()
+    base_filter = {"visibility": "public", "status": {"$in": ["ready", "published"]}}
+
     if user:
         blocked = db.creatorblocks.distinct("channelId", {"userId": user})
         if blocked:
-            eligible["channelId"] = {"$nin": blocked}
-    catalog = list(db.videos.find(eligible, fields))
-    history = db.videointeractions.find({"userId": user}, {"playedRanges": 0}) if user else []
+            base_filter["channelId"] = {"$nin": blocked}
+
+    # Stage 1: Candidate Generation (Retrieval shortlist)
+    history = list(db.videointeractions.find({"userId": user}, {"playedRanges": 0}).sort("updatedAt", -1).limit(50)) if user else []
+
+    candidates = {}
+    # Pool A: Top recent uploads in last 48 hours
+    for v in db.videos.find(base_filter, fields).sort("createdAt", -1).limit(40):
+        candidates[v["_id"]] = v
+
+    # Pool B: All-time top viewed
+    for v in db.videos.find(base_filter, fields).sort("views", -1).limit(40):
+        candidates[v["_id"]] = v
+
+    # Pool C: Category/Topic affinity candidates for signed-in users
+    if history:
+        recent_ids = [h["videoId"] for h in history[:10] if h.get("liked") or (h.get("playedSeconds", 0) > 10)]
+        if recent_ids:
+            samples = list(db.videos.find({"_id": {"$in": recent_ids}}, ["category"]).limit(10))
+            cats = list(filter(None, {s.get("category") for s in samples}))
+            if cats:
+                for v in db.videos.find({**base_filter, "category": {"$in": cats}}, fields).sort("views", -1).limit(30):
+                    candidates[v["_id"]] = v
+
+    catalog = list(candidates.values())
     now = datetime.now(timezone.utc)
     chosen = []
     for pick in rank(catalog, history, encode, now, limit):

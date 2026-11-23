@@ -1,3 +1,4 @@
+import PlaybackTelemetry from "../../shared/models/playbackTelemetry.model.js";
 import { mergePlayed } from "../utils/playedRanges.js";
 import GuestView from "../../shared/models/guestView.model.js";
 import { verifyGatewaySignature } from "../../shared/utils/gatewaySignature.js";
@@ -75,7 +76,7 @@ const claimGuestView = async (req, videoId, now, session) => {
 };
 
 export const savePlayback = asyncHandler(async (req, res) => {
-  const { ranges, position, duration: reportedDuration, rangesOnly } = req.body || {};
+  const { ranges, position, duration: reportedDuration, rangesOnly, feedId, feedPosition } = req.body || {};
   if (!Array.isArray(ranges) || ranges.length === 0 || ranges.length > 128 ||
       !Number.isFinite(position) || position < 0 ||
       !Number.isFinite(reportedDuration) || reportedDuration <= 0 ||
@@ -98,6 +99,10 @@ export const savePlayback = asyncHandler(async (req, res) => {
       playedRanges: merged, playedSeconds: seconds, playedDuration: duration,
     };
     if (seconds > (previous?.playedSeconds || 0)) progress.playedAt = new Date();
+    if (/^[a-f0-9]{24}$/i.test(String(feedId ?? ''))) {
+      progress.attributionFeedId = feedId;
+      progress.attributionPosition = Number.isInteger(feedPosition) && feedPosition >= 0 ? feedPosition : null;
+    }
     const update = { $set: progress, $inc: { playbackRevision: 1 } };
     if (rangesOnly !== true) {
       progress.lastWatchedPosition = Math.min(position, duration);
@@ -400,4 +405,35 @@ export const getContinueWatching = asyncHandler(async (req, res) => {
     success: true,
     continueWatching: await withReactionCounts(continueWatching),
   });
+});
+
+export const saveTelemetry = asyncHandler(async (req, res) => {
+  const { videoId } = req.params;
+  const {
+    ttffMs,
+    totalStallMs,
+    totalWatchDurationMs,
+    rebufferRatio,
+    startFailed,
+    browser,
+    resolution,
+    networkType,
+  } = req.body || {};
+
+  const userId = req.auth ? req.auth.userId : null;
+
+  await PlaybackTelemetry.create({
+    videoId,
+    userId,
+    ttffMs: Number(ttffMs) || 0,
+    totalStallMs: Number(totalStallMs) || 0,
+    totalWatchDurationMs: Number(totalWatchDurationMs) || 0,
+    rebufferRatio: Number(rebufferRatio) || 0,
+    startFailed: Boolean(startFailed),
+    browser: String(browser || "unknown").slice(0, 64),
+    resolution: String(resolution || "auto").slice(0, 32),
+    networkType: String(networkType || "unknown").slice(0, 32),
+  });
+
+  res.status(204).end();
 });

@@ -18,7 +18,7 @@ export function VideoTile({video, index, feedId}) {
     observer.observe(ref.current);
     return () => observer.disconnect();
   }, [feedId,index]);
-  return <Link ref={ref} className="film" to={'/watch/'+video.id}>
+  return <Link ref={ref} className="film" to={'/watch/'+video.id+(feedId ? '?'+new URLSearchParams({feedId,pos:index}) : '')}>
     <div className="frame">{video.thumbnail && <img loading="lazy" src={video.thumbnail} alt=""/>}{video.duration && <small>{video.duration}</small>}</div>
     <strong>{video.title}</strong><span>{video.creator} · {video.views} views</span>
   </Link>;

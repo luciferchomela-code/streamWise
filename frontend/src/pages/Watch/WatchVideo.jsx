@@ -2,7 +2,7 @@ import { VideoTile } from '../../cinema/Catalog';
 import {StartParty} from "../Features/Community";
 import { WatchActions, ReportContent } from './WatchActions';
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { videoService } from '../../services/videoService';
 import { interactionService } from '../../services/interactionService';
@@ -81,6 +81,9 @@ const CommentItem = ({ comment, onDelete, currentUserId, isVideoOwner }) => {
 
 export default function WatchVideo() {
   const { videoId } = useParams();
+  const [searchParams] = useSearchParams();
+  const feedId = searchParams.get('feedId');
+  const feedPosition = searchParams.has('pos') ? Number(searchParams.get('pos')) : null;
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -278,7 +281,7 @@ export default function WatchVideo() {
 
   if (loading || error || !video) return <main className="folio" role="status">{error || (loading?'Loading video…':'Video unavailable.')}</main>;
   return <main className="screening">
-    <section aria-label="Video player" className="projection"><VideoPlayer key={videoId+':'+(user?._id||'guest')} trackHistory={Boolean(user)} videoId={videoId} title={video.title} thumbnailUrl={video.thumbnail} storyboard={video.storyboard} hlsUrl={video.hlsUrl} mp4Url={video.mp4Url} duration={video.duration} startPosition={startPosition}/></section>
+    <section aria-label="Video player" className="projection"><VideoPlayer key={videoId+':'+(user?._id||'guest')} trackHistory={Boolean(user)} feedId={feedId} feedPosition={feedPosition} videoId={videoId} title={video.title} thumbnailUrl={video.thumbnail} storyboard={video.storyboard} hlsUrl={video.hlsUrl} mp4Url={video.mp4Url} duration={video.duration} startPosition={startPosition}/></section>
     <div className="program"><article><h1>{video.title}</h1><div className="rail"><Link to={'/channel/'+video.channelId}>{channel?.name||video.creator}</Link><span>{views} views</span><button onClick={handleToggleSubscribe}>{subscribed?'Unsubscribe':'Subscribe'}</button></div>
     <div className="rail"><button aria-pressed={liked} onClick={handleLike}>Like · {likes}</button><button aria-pressed={disliked} onClick={handleDislike}>Dislike · {dislikes}</button><button aria-pressed={savedWatchLater} onClick={handleToggleWatchLater}>{savedWatchLater?'Saved':'Watch later'}</button>{user&&<StartParty videoId={videoId}/>}</div>
     <p>{video.description}</p>{user&&<WatchActions videoId={videoId} channelId={video.channelId} isVideoOwner={isVideoOwner}/>}

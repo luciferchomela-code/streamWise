@@ -22,6 +22,8 @@ export const VideoPlayer = ({
   duration,
   startPosition = 0,
   trackHistory = false,
+  feedId,
+  feedPosition,
   storyboard = [],
 }) => {
   const videoRef = useRef(null);
@@ -253,8 +255,8 @@ export const VideoPlayer = ({
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !videoId || !trackHistory) return;
-    return trackPlayback(video, body => interactionService.savePlayback(videoId, { ...body, rangesOnly: true }));
-  }, [videoId, trackHistory, playbackAttempt]);
+    return trackPlayback(video, body => interactionService.savePlayback(videoId, { ...body, rangesOnly: true, feedId, feedPosition }));
+  }, [videoId, trackHistory, playbackAttempt, feedId, feedPosition]);
 
   // Controls Auto-hide
   useEffect(() => {

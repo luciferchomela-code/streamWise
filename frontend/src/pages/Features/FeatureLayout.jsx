@@ -11,7 +11,7 @@ export const primary = 'primary-control';
 export function FeatureLayout({ title, tools, error, children }) {
   const { user, loading } = useAuth();
   return <div className="min-h-screen bg-[#101010] text-white">
-    
+
     <main className="desk">
       <header className="flex flex-wrap items-center justify-between gap-4">
         <h1 className="text-3xl font-bold tracking-tight">{title}</h1>

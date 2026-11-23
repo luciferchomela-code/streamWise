@@ -77,7 +77,7 @@ export default function MyChannel() {
   if (loading) {
     return (
       <div className="min-h-screen bg-[#101010] text-white flex flex-col">
-        
+
         <div className="flex-1 flex items-center justify-center">
           <div className="flex flex-col items-center gap-3">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#d6b36a]"></div>
@@ -91,7 +91,7 @@ export default function MyChannel() {
   if (channel) {
     return (
       <div className="min-h-screen bg-[#101010] text-white flex flex-col">
-        
+
         <main className="flex-1 pb-16">
           <div className="max-w-[1400px] mx-auto">
             {/* Channel Header */}
@@ -104,13 +104,13 @@ export default function MyChannel() {
               {/* Profile Row */}
               <div className="px-6 md:px-12 pb-6 relative -mt-16 flex flex-col md:flex-row gap-6 md:gap-8 items-start md:items-end">
                 <div className="w-28 h-28 md:w-36 md:h-36 rounded-full border-4 border-[#101010] bg-[#1b1b1b] overflow-hidden shrink-0 shadow-xl">
-                  <img 
-                    src={channel.image || `https://ui-avatars.com/api/?name=${channel.name}&background=1A1F2B&color=fff&size=200`} 
-                    alt={channel.name} 
+                  <img
+                    src={channel.image || `https://ui-avatars.com/api/?name=${channel.name}&background=1A1F2B&color=fff&size=200`}
+                    alt={channel.name}
                     className="w-full h-full object-cover"
                   />
                 </div>
-                
+
                 <div className="flex-1 w-full flex flex-col md:flex-row md:items-end justify-between gap-4 pb-2">
                   <div>
                     <h1 className="text-2xl md:text-3xl font-bold text-white">{channel.name}</h1>
@@ -182,12 +182,12 @@ export default function MyChannel() {
   // Create Channel Form
   return (
     <div className="min-h-screen bg-[#101010] text-white flex flex-col">
-      
+
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="bg-[#1b1b1b] p-8 rounded-3xl border border-white/5 shadow-2xl w-full max-w-lg relative overflow-hidden my-8">
           <div className="absolute top-0 right-0 w-64 h-64 bg-[#806632]/10 rounded-full blur-3xl -mr-32 -mt-32 pointer-events-none"></div>
           <div className="absolute bottom-0 left-0 w-64 h-64 bg-[#806632]/10 rounded-full blur-3xl -ml-32 -mb-32 pointer-events-none"></div>
-          
+
           <div className="relative z-10">
             <div className="flex justify-center mb-8">
               <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-[#806632] to-[#d6b36a] flex items-center justify-center shadow-[0_0_20px_rgba(139,92,246,0.3)]">
@@ -196,10 +196,10 @@ export default function MyChannel() {
                 </svg>
               </div>
             </div>
-            
+
             <h2 className="text-3xl font-bold text-white text-center mb-2">Create your channel</h2>
             <p className="text-gray-400 text-center mb-8">Establish your presence on Streamwise</p>
-            
+
             {error && (
               <div className="mb-6 p-4 bg-red-500/10 border border-red-500/50 rounded-xl text-red-400 text-sm text-center">
                 {error}
@@ -209,14 +209,14 @@ export default function MyChannel() {
             <form onSubmit={handleCreate} className="space-y-4">
               <div className="flex flex-col items-center mb-6">
                 <div className="w-32">
-                  <ImageUploader 
-                    imageType="avatar" 
-                    aspectRatio="1 / 1" 
-                    label="Profile Picture" 
-                    hint="Optional" 
+                  <ImageUploader
+                    imageType="avatar"
+                    aspectRatio="1 / 1"
+                    label="Profile Picture"
+                    hint="Optional"
                     disabled={isCreating}
-                    className="!w-32 !h-32 !rounded-full overflow-hidden" 
-                    onUploadComplete={(url) => setFormData({...formData, image: url})} 
+                    className="!w-32 !h-32 !rounded-full overflow-hidden"
+                    onUploadComplete={(url) => setFormData({...formData, image: url})}
                   />
                 </div>
               </div>
@@ -232,7 +232,7 @@ export default function MyChannel() {
                   placeholder="e.g. John's Tech Vlogs"
                 />
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1.5">Handle</label>
                 <div className="relative">

@@ -92,7 +92,31 @@ def rank(videos, history, encode, now, limit):
     share = exposure / (exposure + 8)
     redundancy = np.zeros(len(videos))
     results = []
+
+    # Dedicated exploration slot for new uploads with few impressions (Item 4)
+    explore_slot = 4 if limit >= 6 else -1
+    explore_placed = False
+
     for slot in range(1, min(limit, len(eligible)) + 1):
+        if slot == explore_slot and not explore_placed:
+            fresh_candidates = [
+                i for i in eligible
+                if ((videos[i].get("impressions") is not None and videos[i].get("impressions") < 50) or
+                    ((videos[i].get("views") or 0) < 5 and age_days(now, videos[i].get("createdAt")) <= 7))
+            ]
+            if fresh_candidates:
+                winner = max(fresh_candidates, key=lambda i: (float(affinity[i]), -age_days(now, videos[i].get("createdAt"))))
+                explore_placed = True
+                if affinity[winner] > 0.05:
+                    reason = "Similar to videos you liked" if best_seed_liked[winner] else "Similar to videos you watched"
+                else:
+                    reason = "Fresh upload you might like" if affinity[winner] > 0.01 else "New on StreamWise"
+                score_val = float(0.9 * affinity[winner] + 0.1 * popularity[winner])
+                results.append(Pick(winner, score_val, reason))
+                eligible.remove(winner)
+                redundancy = np.maximum(redundancy, np.maximum(0, vectors @ vectors[winner]) ** 4)
+                continue
+
         personal = round(slot * share) > round((slot - 1) * share)
         relevance = 0.9 * affinity + 0.1 * popularity if personal else popularity
         scores = relevance - penalty - 0.12 * redundancy

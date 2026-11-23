@@ -20,7 +20,7 @@ export const uploadService = {
   // Upload to Cloudinary using signature
   uploadToCloudinary: async (file, signatureData, onProgress, headers = {}) => {
     const { signature, timestamp, apiKey, uploadUrl, folder, publicId, overwrite, eager, eagerAsync } = signatureData;
-    
+
     const formData = new FormData();
     formData.append('file', file);
     formData.append('api_key', apiKey);
@@ -33,7 +33,7 @@ export const uploadService = {
     if (overwrite !== undefined) formData.append('overwrite', String(overwrite));
     if (eager) formData.append('eager', eager);
     if (eagerAsync !== undefined) formData.append('eager_async', eagerAsync ? 'true' : 'false');
-    
+
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', uploadUrl);

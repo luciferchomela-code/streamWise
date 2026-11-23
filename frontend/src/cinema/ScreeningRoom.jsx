@@ -27,5 +27,3 @@ export default function ScreeningRoom(){
  <Route path="*" element={<main className="folio"><h1>Page unavailable</h1><Link to="/">Browse videos</Link></main>}/>
  </Routes></Suspense></div></>
 }
-
-
