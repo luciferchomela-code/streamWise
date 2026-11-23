@@ -1,3 +1,4 @@
+import { mergePlayed } from "../utils/playedRanges.js";
 import asyncHandler from "../middlewares/tryCatch.js";
 import Video from "../../shared/models/video.model.js";
 import VideoInteraction from "../../shared/models/videoInteraction.model.js";
@@ -35,7 +36,7 @@ export const toggleLike = asyncHandler(async (req, res) => {
 
   const interaction = await VideoInteraction.findOneAndUpdate(
     { userId, videoId },
-    { $set: { liked: newLikedState, disliked: newDislikedState } },
+    { $set: { liked: newLikedState, disliked: newDislikedState, reactionAt: new Date() } },
     { new: true, upsert: true }
   );
 
@@ -96,7 +97,7 @@ export const toggleDislike = asyncHandler(async (req, res) => {
 
   const interaction = await VideoInteraction.findOneAndUpdate(
     { userId, videoId },
-    { $set: { liked: newLikedState, disliked: newDislikedState } },
+    { $set: { liked: newLikedState, disliked: newDislikedState, reactionAt: new Date() } },
     { new: true, upsert: true }
   );
 
@@ -127,6 +128,44 @@ export const toggleDislike = asyncHandler(async (req, res) => {
     dislikes: Math.max(0, updatedVideo.dislikes || 0),
     interaction,
   });
+});
+
+export const savePlayback = asyncHandler(async (req, res) => {
+  const { ranges, position, duration: reportedDuration } = req.body || {};
+  if (!Array.isArray(ranges) || ranges.length === 0 || ranges.length > 128 ||
+      !Number.isFinite(position) || position < 0 ||
+      !Number.isFinite(reportedDuration) || reportedDuration <= 0 ||
+      !ranges.every(pair => Array.isArray(pair) && pair.length === 2 &&
+        pair.every(Number.isFinite) && pair[0] >= 0 && pair[1] > pair[0])) {
+    return res.status(400).json({ message: "Invalid playback ranges" });
+  }
+  const video = await Video.findById(req.params.videoId).select("duration").lean();
+  if (!video) return res.sendStatus(404);
+  const duration = video.duration || reportedDuration;
+  const key = { userId: req.auth.userId, videoId: video._id };
+  // The revision check preserves disjoint ranges reported concurrently by two tabs.
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const previous = await VideoInteraction.findOne(key).select("+playedRanges").lean();
+    const { ranges: merged, seconds } = mergePlayed(previous?.playedRanges || [], ranges, duration);
+    if (!seconds) return res.sendStatus(204);
+    const revision = previous?.playbackRevision;
+    const query = { ...key, playbackRevision: revision ?? { $exists: false } };
+    const progress = {
+      playedRanges: merged, playedSeconds: seconds, playedDuration: duration,
+      lastWatchedPosition: Math.min(position, duration),
+    };
+    if (seconds > (previous?.playedSeconds || 0)) progress.playedAt = new Date();
+    try {
+      const result = await VideoInteraction.updateOne(query, {
+        $set: progress, $inc: { playbackRevision: 1 },
+        $max: { watchPercentage: Math.min(100, 100 * position / duration) },
+      }, { upsert: !previous });
+      if (result.matchedCount || result.upsertedCount) return res.sendStatus(204);
+    } catch (error) {
+      if (error.code !== 11000) throw error;
+    }
+  }
+  return res.status(409).json({ message: "Retry playback update" });
 });
 
 export const incViewCount = asyncHandler(async (req, res) => {

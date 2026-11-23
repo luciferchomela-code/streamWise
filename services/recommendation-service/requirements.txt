@@ -1,12 +1,5 @@
 fastapi
 uvicorn
-pika
-scikit-learn
 numpy
-pandas
-faiss-cpu
-scipy
-motor
 pymongo
-sentence-transformers
-torch
+fastembed>=0.6,<1

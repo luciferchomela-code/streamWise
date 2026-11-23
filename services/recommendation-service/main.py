@@ -1,60 +1,124 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
-import uvicorn
+import hashlib
+import hmac
+import os
+import time
+from collections import OrderedDict
+from datetime import datetime, timezone
+from functools import lru_cache
+from threading import Lock
+
 import numpy as np
+from bson import ObjectId
+from fastapi import FastAPI, HTTPException, Query, Request, Response
+from fastembed import TextEmbedding
+from pydantic import BaseModel, Field
+from pymongo import MongoClient
 
-# In a real app, you would load these globally/ In resarch phase:
-# from sentence_transformers import SentenceTransformer
-# import faiss
-# embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-# faiss_index = faiss.IndexFlatL2(384) # 384 is the dimension for MiniLM
+from ranker import rank
 
-app = FastAPI(title="YouTube ML Recommendation Service")
+app = FastAPI(title="StreamWise recommendations")
+db = MongoClient(os.environ["MONGO_URL"], tz_aware=True, serverSelectionTimeoutMS=3000)[
+    os.getenv("MONGO_DB_NAME", "streamwise")
+]
+secret = os.getenv("GATEWAY_SECRET")
+if not secret and os.getenv("NODE_ENV") == "production":
+    raise RuntimeError("GATEWAY_SECRET is required")
+secret = (secret or "dev_internal_gateway_secret_streamwise_key_8492").encode()
+model_name = "sentence-transformers/all-MiniLM-L6-v2"
+embedding_lock = Lock()
 
-class InteractionEvent(BaseModel):
-    user_id: str
-    video_id: str
-    event_type: str # view, like, complete
-    watch_percentage: float
+
+@lru_cache(maxsize=1)
+def model():
+    return TextEmbedding(model_name=model_name, cache_dir=os.getenv("MODEL_CACHE", "/tmp/streamwise-models"))
+
+
+# Small-catalog exact search. Metadata edits naturally change the cache key.
+vector_cache = OrderedDict()
+
+
+def encode(videos):
+    texts = []
+    for video in videos:
+        fields = [video.get("title"), " ".join(video.get("tags") or []),
+                  video.get("category"), (video.get("description") or "")[:1200]]
+        texts.append(" ".join(filter(None, fields)) or "video")
+    with embedding_lock:
+        missing = list(dict.fromkeys(text for text in texts if text not in vector_cache))
+        if missing:
+            vector_cache.update(zip(missing, model().embed(missing), strict=True))
+        rows = [vector_cache[text] for text in texts]
+        for text in texts:
+            vector_cache.move_to_end(text)
+        while len(vector_cache) > 8192:
+            vector_cache.popitem(last=False)
+    matrix = np.asarray(rows, dtype=np.float32)
+    return matrix / np.maximum(np.linalg.norm(matrix, axis=1, keepdims=True), 1e-9)
+
+
+def identity(request):
+    headers = request.headers
+    user = headers.get("x-user-id", "")
+    stamp = headers.get("x-gateway-timestamp", "")
+    payload = f"{user or 'anonymous'}:{headers.get('x-request-id', '')}:{stamp}"
+    expected = hmac.digest(secret, payload.encode(), hashlib.sha256).hex()
+    if (not stamp.isascii() or not stamp.isdigit() or len(stamp) > 15
+            or abs(time.time() * 1000 - int(stamp)) > 60000
+            or not hmac.compare_digest(expected, headers.get("x-gateway-signature", ""))):
+        raise HTTPException(403, "Gateway signature required")
+    if user and not ObjectId.is_valid(user):
+        raise HTTPException(400, "Invalid account ID")
+    return ObjectId(user) if user else None
+
 
 @app.get("/health")
-def health_check():
-    return {"status": "ok", "service": "recommendation-service"}
+def health():
+    return {"status": "ok"}
 
-@app.post("/api/events/interaction")
-def record_interaction(event: InteractionEvent):
-    """
-    In production, this would ideally be consumed via RabbitMQ instead of HTTP.
-    Updates the user's history in MongoDB.
-    """
-    # TODO: Save to MongoDB
-    return {"status": "recorded"}
 
-@app.get("/api/recommendations/{user_id}")
-def get_recommendations(user_id: str):
-    """
-    The Core YouTube ML Pipeline (Adapted for Cold-Start)
-    """
-    # 1. Fetch User's Last K Videos from MongoDB
-    last_k_videos = [] # Mock
-    
-    # 2. CANDIDATE GENERATION (Two-Tower / FAISS)
-    # If no data, use random trending videos. 
-    # Else, average the pre-trained embeddings of last_k_videos to create User Vector.
-    # user_vector = np.mean([get_embedding(vid) for vid in last_k_videos], axis=0)
-    # _, candidate_indices = faiss_index.search(user_vector, 500)
-    
-    # 3. DEEP RANKING (Weighted Logistic Regression)
-    # Pass the 500 candidates through the Ranking Model.
-    # Score = model.predict_proba(user_features, candidate_features)
-    
-    # 4. POST-PROCESSING
-    # Filter watched videos, blend search queries, take top 20
-    
-    return {
-        "user_id": user_id,
-        "recommendations": ["vid_1", "vid_2", "vid_3"] # Mock top 20
-    }
+@app.get("/api/recommendations")
+def feed(request: Request, response: Response, limit: int = Query(12, ge=1, le=50)):
+    user = identity(request)
+    response.headers["Cache-Control"] = "private, no-store"
+    fields = "title description tags category duration views channelId createdAt thumbnailUrl".split()
+    catalog = list(db.videos.find({"visibility": "public", "status": {"$in": ["ready", "published"]}}, fields))
+    history = db.videointeractions.find({"userId": user}, {"playedRanges": 0}) if user else []
+    now = datetime.now(timezone.utc)
+    chosen = []
+    for pick in rank(catalog, history, encode, now, limit):
+        video = catalog[pick.index]
+        chosen.append({**video, "videoId": str(video["_id"]), "score": float(pick.score),
+                       "reason": pick.reason})
+    channel_ids = [v.get("channelId") for v in chosen]
+    channels = {c["_id"]: c for c in db.channels.find({"_id": {"$in": channel_ids}}, ["name", "image"])}
+    for video in chosen:
+        cid = video.get("channelId")
+        channel = channels.get(cid, {})
+        video["channelId"] = {**channel, "_id": str(cid)} if cid else None
+        video["_id"] = str(video["_id"])
+    feed_id = None
+    if user and chosen:
+        feed_id = db.recommendationfeeds.insert_one({
+            "userId": user, "servedAt": now, "version": 2,
+            "videoIds": [ObjectId(v["_id"]) for v in chosen],
+            "seenPositions": [],
+        }).inserted_id
+    return {"videos": chosen, "feedId": str(feed_id) if feed_id else None}
 
-if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+
+class Impression(BaseModel):
+    feedId: str = Field(pattern="^[0-9a-f]{24}$")
+    position: int = Field(ge=0, lt=50)
+
+
+@app.post("/api/recommendations/impressions", status_code=204)
+def impression(request: Request, event: Impression):
+    user = identity(request)
+    match = db.recommendationfeeds.update_one(
+        {"_id": ObjectId(event.feedId), "userId": user,
+         f"videoIds.{event.position}": {"$exists": True}},
+        {"$addToSet": {"seenPositions": event.position}},
+    )
+    if not match.matched_count:
+        raise HTTPException(404, "Unknown feed position")
+    return Response(status_code=204)

@@ -7,6 +7,8 @@ import { RedisStore } from "rate-limit-redis";
 import { createClient } from "redis";
 import { randomUUID } from "crypto";
 
+import { optionalAuth } from "./src/middleware/optionalAuth.js";
+import { createProxy } from "./src/utils/createProxy.js";
 import authRoutes from "./src/routes/auth.services.js";
 import videoRoutes from "./src/routes/video.services.js";
 import channelRoutes from "./src/routes/channel.services.js";
@@ -101,6 +103,10 @@ app.get("/health", (req, res) => {
 
 // Enforce CSRF Origin / Referer validation on state-changing requests
 app.use(csrfProtection);
+
+const recommendations = createProxy(process.env.RECOMMENDATION_SERVICE_URL || "http://localhost:8000", "Recommendations");
+app.post("/api/recommendations/impressions", optionalAuth, recommendations);
+app.get("/api/recommendations", optionalAuth, recommendations);
 
 app.use("/api/auth", authRoutes);
 app.use("/api/videos", videoRoutes);

@@ -54,7 +54,9 @@ export const normalizeVideo = (v) => {
   const mp4 = !isDirectHls ? rawUrl : null;
 
   return {
-    id: v._id,
+    id: v.videoId || v._id,
+    reason: v.reason,
+    score: v.score,
     title: v.title || 'Untitled',
     creator: v.channelId?.name || 'Unknown Channel',
     channelId: v.channelId?._id || v.channelId,
@@ -77,6 +79,18 @@ export const normalizeVideo = (v) => {
 };
 
 export const videoService = {
+  getFeed: async () => {
+    const res = await apiFetch(`${API_BASE_URL}/recommendations?limit=8`);
+    if (!res.ok) throw new Error('Feed unavailable');
+    const data = await res.json();
+    return { feedId: data.feedId, videos: data.videos.map(normalizeVideo) };
+  },
+
+  recordImpression: (feedId, position) => apiFetch(`${API_BASE_URL}/recommendations/impressions`, {
+    method: 'POST',
+    body: JSON.stringify({ feedId, position }),
+  }),
+
   getTrending: async ({ page = 1, limit = 12 } = {}) => {
     const res = await apiFetch(
       `${API_BASE_URL}/videos/trending?page=${page}&limit=${limit}`

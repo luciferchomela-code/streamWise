@@ -3,6 +3,7 @@ import {
   toggleLike,
   toggleDislike,
   incViewCount,
+  savePlayback,
   getComments,
   addComment,
   deleteComment,
@@ -31,6 +32,7 @@ router.get("/:videoId/comments", optionalGatewayIdentity, getComments);
 router.post("/:videoId/view", optionalGatewayIdentity, incViewCount);
 
 // Protected Interactions (Require Login)
+router.post("/:videoId/playback", requireGatewayIdentity, savePlayback);
 router.post("/:videoId/like", requireGatewayIdentity, toggleLike);
 router.post("/:videoId/dislike", requireGatewayIdentity, toggleDislike);
 router.post("/:videoId/comment", requireGatewayIdentity, addComment);

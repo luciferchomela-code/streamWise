@@ -324,7 +324,9 @@ export default function WatchVideo() {
           {/* Video Player */}
           {video?.videoUrl ? (
             <VideoPlayer
-              videoId={videoId}
+              key={video.id + ':' + (user?._id || user?.id || 'guest')}
+              signedIn={Boolean(user)}
+              videoId={video.id}
               title={video.title}
               thumbnailUrl={video.thumbnail}
               hlsUrl={video.hlsUrl || (video.videoUrl.includes('m3u8') ? video.videoUrl : null)}
