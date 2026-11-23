@@ -1,3 +1,4 @@
+import { optionalGatewayIdentity } from "../middlewares/optionalGatewayIdentity.js";
 import express from "express";
 import {
   createChannel,
@@ -29,6 +30,6 @@ router.delete("/:channelId/unsubscribe", requireGatewayIdentity, unsubscribe);
 router.get("/:channelId/subscription-status", requireGatewayIdentity, checkSubscriptionStatus);
 
 // Public routes (Wildcard route LAST)
-router.get("/:channelId", getChannel);
+router.get("/:channelId", optionalGatewayIdentity, getChannel);
 
 export default router;

@@ -1,4 +1,4 @@
-const ALLOWED_ORIGIN_REGEX = /^https?:\/\/(localhost|127\.0\.0\.1)(:[0-9]+)?$/;
+import { isAllowedBrowserOrigin } from "../utils/browserOrigins.js";
 
 /**
  * Validates Origin/Referer and Sec-Fetch-Site on state-changing requests (POST, PUT, PATCH, DELETE).
@@ -24,7 +24,7 @@ export const csrfProtection = (req, res, next) => {
 
   // Validate Origin header if present
   if (origin) {
-    if (!ALLOWED_ORIGIN_REGEX.test(origin)) {
+    if (!isAllowedBrowserOrigin(origin)) {
       return res.status(403).json({
         message: "Forbidden: Origin not allowed by CSRF policy",
         requestId: req.requestId,
@@ -37,7 +37,7 @@ export const csrfProtection = (req, res, next) => {
   if (referer) {
     try {
       const refererUrl = new URL(referer);
-      if (!ALLOWED_ORIGIN_REGEX.test(refererUrl.origin)) {
+      if (!isAllowedBrowserOrigin(refererUrl.origin)) {
         return res.status(403).json({
           message: "Forbidden: Referer origin not allowed by CSRF policy",
           requestId: req.requestId,

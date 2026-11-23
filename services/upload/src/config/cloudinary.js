@@ -57,16 +57,15 @@ export const generateImageSignature = (folderType = "image") => {
 export const generateVideoSignature = (videoId) => {
   ensureCloudinaryConfig();
   const timestamp = Math.round(Date.now() / 1000);
-  const folder = `streamwise/videos`;
-  const publicId = `${folder}/${videoId}`; // deterministic — tied to MongoDB _id
+  const publicId = `streamwise/videos/${videoId}`;
 
-  const eager = "sp_auto/m3u8"; // Generates HLS adaptive streaming profile (auto-scales 1080p, 720p, 480p, 360p)
+  const eager = "sp_auto:maxres_480p/m3u8";
   const eager_async = true;   // Do it in the background so upload finishes instantly
 
   const paramsToSign = { 
     timestamp, 
-    folder, 
     public_id: publicId,
+    overwrite: false,
     eager,
     eager_async 
   };
@@ -78,8 +77,8 @@ export const generateVideoSignature = (videoId) => {
   return {
     signature,
     timestamp,
-    folder,
     publicId,
+    overwrite: false,
     eager,
     eagerAsync: eager_async,
     apiKey: process.env.CLOUD_API_KEY,

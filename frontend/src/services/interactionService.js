@@ -22,7 +22,7 @@ export const interactionService = {
   incrementView: async (videoId, watchPercentage = 30, lastWatchedPosition = 0) => {
     const res = await apiFetch(`${API_BASE_URL}/interactions/${videoId}/view`, {
       method: 'POST',
-      body: JSON.stringify({ watchPercentage, lastWatchedPosition }),
+      body: JSON.stringify({ watchPercentage, lastWatchedPosition, observedAt: Date.now() }),
     });
     const data = await res.json().catch(() => ({}));
     return data;

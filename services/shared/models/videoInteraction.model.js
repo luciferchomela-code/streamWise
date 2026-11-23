@@ -65,11 +65,13 @@ const videoInteractionSchema = new Schema(
       type: Date,
       default: null,
     },
+    lastCountedAt: Date,
   },
   { timestamps: true }
 );
 
 videoInteractionSchema.index({ userId: 1, videoId: 1 }, { unique: true });
+videoInteractionSchema.index({ videoId: 1, liked: 1, disliked: 1 });
 videoInteractionSchema.index({ userId: 1, lastViewedAt: -1 });
 videoInteractionSchema.index({ userId: 1, liked: 1, updatedAt: -1 });
 videoInteractionSchema.index({ userId: 1, disliked: 1, updatedAt: -1 });

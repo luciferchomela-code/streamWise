@@ -1,3 +1,5 @@
+import {recordEvent,withEventTransaction} from "../utils/outbox.js";
+import { blockedChannelIds, isBlocked } from "../utils/videoAccess.js";
 import asyncHandler from "../middlewares/tryCatch.js";
 import Channel from "../../shared/models/channel.model.js";
 import ChannelInteraction from "../../shared/models/channelInteraction.model.js";
@@ -28,7 +30,7 @@ export const getChannel = asyncHandler(async (req, res) => {
   const { channelId } = req.params;
   const channel = await Channel.findById(channelId);
 
-  if (!channel) {
+  if (!channel || await isBlocked(req.auth?.userId, channelId)) {
     return res.status(404).json({ message: "Channel not found." });
   }
 
@@ -94,18 +96,12 @@ export const subscribe = asyncHandler(async (req, res) => {
   }
 
   try {
-    const channelInteraction = await ChannelInteraction.create({
-      userId,
-      channelId,
-      subscribed: true,
+    const {channelInteraction,updatedChannel} = await withEventTransaction(async session => {
+      const [channelInteraction] = await ChannelInteraction.create([{userId,channelId,subscribed:true}], {session});
+      const updatedChannel = await Channel.findByIdAndUpdate(channelId, {$inc:{subscribersCount:1}}, {new:true,session});
+      await recordEvent(session,"channel.subscribed",{userId,ownerId:String(channel.ownerId),channelId});
+      return {channelInteraction,updatedChannel};
     });
-
-    const updatedChannel = await Channel.findByIdAndUpdate(
-      channelId,
-      { $inc: { subscribersCount: 1 } },
-      { new: true }
-    );
-
     res.status(200).json({ success: true, channel: updatedChannel, channelInteraction });
   } catch (error) {
     if (error.code === 11000) {
@@ -148,8 +144,9 @@ export const getMySubscriptions = asyncHandler(async (req, res) => {
     .sort({ updatedAt: -1 })
     .populate("channelId");
 
+  const blocked = await blockedChannelIds(userId);
   const channels = subscriptions
-    .filter((sub) => sub.channelId)
+    .filter((sub) => sub.channelId && !blocked.has(String(sub.channelId._id)))
     .map((sub) => sub.channelId);
 
   res.status(200).json({
@@ -176,7 +173,8 @@ export const getSubscribedVideos = asyncHandler(async (req, res) => {
   const skip = (page - 1) * limit;
 
   const subscriptions = await ChannelInteraction.find({ userId, subscribed: true }).select("channelId");
-  const channelIds = subscriptions.map((sub) => sub.channelId);
+  const blocked = await blockedChannelIds(userId);
+  const channelIds = subscriptions.map((sub) => sub.channelId).filter((id) => !blocked.has(String(id)));
 
   if (channelIds.length === 0) {
     return res.status(200).json({

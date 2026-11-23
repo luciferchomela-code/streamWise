@@ -1,3 +1,4 @@
+import {Bell} from "../../../pages/Features/Community";
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../hooks/useAuth';
@@ -108,12 +109,7 @@ export const Navbar = ({ onSearch }) => {
             <span className="text-sm font-medium">Upload</span>
           </Link>
 
-          <button className="p-2 text-gray-400 hover:text-white rounded-full hover:bg-white/5 transition-colors relative focus:outline-none focus:ring-2 focus:ring-cyan-400/50" aria-label="Notifications">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-            </svg>
-            <span className="absolute top-2 right-2 w-2 h-2 bg-violet-500 rounded-full border border-[#0B0D12]"></span>
-          </button>
+          <Link to="/live" className="text-sm">Live</Link><Bell/>
           
           <Link to="/watch-later" className="hidden sm:block p-2 text-gray-400 hover:text-white rounded-full hover:bg-white/5 transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-400/50" aria-label="Watch Later">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -157,6 +153,8 @@ export const Navbar = ({ onSearch }) => {
                     Your Channel
                   </Link>
                   
+                  {user && [['/studio', 'Creator Studio'], ['/playlists', 'Playlists'], ['/moderation', 'Moderation']].map(([path, label]) =>
+                    <Link key={path} to={path} onClick={() => setIsProfileMenuOpen(false)} className="px-4 py-2 text-sm text-gray-300 hover:bg-white/5 hover:text-white">{label}</Link>)}
                   <Link to="/watch-later" onClick={() => setIsProfileMenuOpen(false)} className="px-4 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/5 flex items-center gap-3 transition-colors">
                     <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>
                     Watch Later
