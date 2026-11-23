@@ -131,7 +131,7 @@ export const toggleDislike = asyncHandler(async (req, res) => {
 });
 
 export const savePlayback = asyncHandler(async (req, res) => {
-  const { ranges, position, duration: reportedDuration } = req.body || {};
+  const { ranges, position, duration: reportedDuration, feedId, feedPosition } = req.body || {};
   if (!Array.isArray(ranges) || ranges.length === 0 || ranges.length > 128 ||
       !Number.isFinite(position) || position < 0 ||
       !Number.isFinite(reportedDuration) || reportedDuration <= 0 ||
@@ -155,6 +155,12 @@ export const savePlayback = asyncHandler(async (req, res) => {
       lastWatchedPosition: Math.min(position, duration),
     };
     if (seconds > (previous?.playedSeconds || 0)) progress.playedAt = new Date();
+    if (feedId && /^[0-9a-fA-F]{24}$/.test(String(feedId))) {
+      progress.attributionFeedId = feedId;
+      if (Number.isInteger(feedPosition) && feedPosition >= 0) {
+        progress.attributionPosition = feedPosition;
+      }
+    }
     try {
       const result = await VideoInteraction.updateOne(query, {
         $set: progress, $inc: { playbackRevision: 1 },

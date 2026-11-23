@@ -177,7 +177,9 @@ export const Home = () => {
                   <h2 className="text-xl font-bold mb-6">For You</h2>
                   <div ref={feedGrid} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                     {feed.videos.map((video, position) => (
-                      <div key={video.id} data-position={position}><VideoCard {...video} /></div>
+                      <div key={video.id} data-position={position}>
+                        <VideoCard {...video} feedId={feed.feedId} feedPosition={position} />
+                      </div>
                     ))}
                   </div>
                 </section>

@@ -14,6 +14,8 @@ const formatTime = (seconds) => {
 
 export const VideoPlayer = ({
   videoId,
+  feedId,
+  feedPosition,
   signedIn,
   title,
   thumbnailUrl,
@@ -171,8 +173,12 @@ export const VideoPlayer = ({
       return () => el.removeEventListener('playing', onPlay);
     }
 
-    return trackPlayback(el, body => interactionService.savePlayback(videoId, body));
-  }, [videoId, signedIn]);
+    return trackPlayback(el, body => interactionService.savePlayback(videoId, {
+      ...body,
+      feedId: feedId || undefined,
+      feedPosition: typeof feedPosition === 'number' && !isNaN(feedPosition) ? feedPosition : undefined,
+    }));
+  }, [videoId, signedIn, feedId, feedPosition]);
 
   // Controls Auto-hide
   useEffect(() => {

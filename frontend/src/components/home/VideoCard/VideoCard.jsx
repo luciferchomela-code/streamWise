@@ -11,13 +11,19 @@ export const VideoCard = ({
   timeAgo, 
   reason,
   rank,
-  orientation = 'vertical' // 'vertical' | 'horizontal'
+  orientation = 'vertical', // 'vertical' | 'horizontal'
+  feedId,
+  feedPosition
 }) => {
   const isHorizontal = orientation === 'horizontal';
+  const watchUrl = id
+    ? (feedId ? `/watch/${id}?feedId=${encodeURIComponent(feedId)}&pos=${encodeURIComponent(feedPosition ?? '')}` : `/watch/${id}`)
+    : '#';
 
   return (
     <Link
-      to={id ? `/watch/${id}` : '#'}
+      to={watchUrl}
+      state={feedId ? { feedId, feedPosition } : undefined}
       className={`group flex ${isHorizontal ? 'flex-col sm:flex-row gap-4' : 'flex-col gap-3'} rounded-2xl cursor-pointer focus-within:ring-2 focus-within:ring-cyan-400/50 outline-none no-underline`}
     >
       {/* Thumbnail Area */}

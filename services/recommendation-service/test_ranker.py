@@ -83,3 +83,20 @@ class FeedTests(unittest.TestCase):
         picks = rank(videos, history, lambda _: np.eye(2), self.now, 10)
         self.assertEqual(len(picks), 1)
         self.assertEqual(picks[0].index, 1)
+
+    def test_exploration_slot_placed_for_fresh_upload(self):
+        # 8 popular videos and 1 fresh upload with 2 views
+        videos = [
+            {"_id": i, "views": 1000 - i * 10, "createdAt": self.now - timedelta(days=20)}
+            for i in range(8)
+        ]
+        # video 8 is fresh with 2 views
+        videos.append({"_id": 8, "views": 2, "createdAt": self.now - timedelta(hours=2)})
+        vectors = np.eye(9)
+        vectors[8] = vectors[0]
+
+        history = [{"videoId": 0, "liked": True, "reactionAt": self.now}]
+        picks = rank(videos, history, lambda _: vectors, self.now, 6)
+        pick_indices = [p.index for p in picks]
+        # Fresh video 8 should be picked in the exploration slot
+        self.assertIn(8, pick_indices)

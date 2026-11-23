@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { Navbar } from '../../components/layout/Navbar/Navbar';
 import { videoService } from '../../services/videoService';
 import { interactionService } from '../../services/interactionService';
@@ -79,6 +79,11 @@ export default function WatchVideo() {
   const { videoId } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const location = useLocation();
+  const feedId = searchParams.get('feedId') || location.state?.feedId || null;
+  const rawPos = searchParams.get('pos') ?? location.state?.feedPosition;
+  const feedPosition = rawPos !== null && rawPos !== undefined && rawPos !== '' ? Number(rawPos) : null;
 
   const [video, setVideo] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -327,6 +332,8 @@ export default function WatchVideo() {
               key={video.id + ':' + (user?._id || user?.id || 'guest')}
               signedIn={Boolean(user)}
               videoId={video.id}
+              feedId={feedId}
+              feedPosition={feedPosition}
               title={video.title}
               thumbnailUrl={video.thumbnail}
               hlsUrl={video.hlsUrl || (video.videoUrl.includes('m3u8') ? video.videoUrl : null)}

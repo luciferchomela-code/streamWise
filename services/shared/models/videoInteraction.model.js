@@ -47,6 +47,15 @@ const videoInteractionSchema = new Schema(
     playbackRevision: { type: Number },
     reactionAt: { type: Date },
     playedAt: { type: Date },
+    attributionFeedId: {
+      type: Schema.Types.ObjectId,
+      ref: "RecommendationFeed",
+      default: null,
+    },
+    attributionPosition: {
+      type: Number,
+      default: null,
+    },
     lastWatchedPosition: {
       type: Number,
       default: 0,
