@@ -30,6 +30,18 @@ export const createProxy = (targetUrl, serviceName = "Unknown service") => {
         });
         proxyReq.setHeader("x-gateway-signature", signature);
         proxyReq.setHeader("x-gateway-timestamp", timestamp.toString());
+        if (!req.auth && req.ip && req.method === "POST" &&
+            /^\/api\/interactions\/[^/]+\/view(?:\?|$)/.test(req.originalUrl)) {
+          const viewer = createGatewaySignature({
+            userId: req.ip.replace(/^::ffff:/, ""),
+            requestId: "guest-viewer",
+            timestamp: 0,
+          });
+          proxyReq.setHeader("x-guest-viewer", viewer);
+          proxyReq.setHeader("x-guest-viewer-signature", createGatewaySignature({
+            userId: `guest:${viewer}`, requestId: req.requestId, timestamp,
+          }));
+        }
       },
       proxyRes: (proxyRes) => {
         // Prevent downstream services from overriding gateway CORS

@@ -141,8 +141,6 @@ export const loginUser = asyncHandler(async (req, res) => {
 
   res.status(200).json({
     message: "logged in successfully",
-    accessToken,
-    refreshToken: rawRefreshToken,
     user,
   });
 });
@@ -209,8 +207,6 @@ export const refreshAccessToken = asyncHandler(async (req, res) => {
 
     return res.status(200).json({
       message: "Tokens refreshed successfully",
-      accessToken: newAccessToken,
-      refreshToken: rawRefreshToken,
     });
   }
 
@@ -283,8 +279,6 @@ export const refreshAccessToken = asyncHandler(async (req, res) => {
 
   res.status(200).json({
     message: "Tokens refreshed successfully",
-    accessToken: nextAccessToken,
-    refreshToken: nextRawToken,
   });
 });
 

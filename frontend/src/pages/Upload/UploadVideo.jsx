@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Navbar } from '../../components/layout/Navbar/Navbar';
 import { Sidebar } from '../../components/layout/Sidebar/Sidebar';
@@ -6,7 +6,7 @@ import { videoService } from '../../services/videoService';
 import { useAuth } from '../../hooks/useAuth';
 import ImageUploader from '../../components/common/ImageUploader/ImageUploader';
 import VideoUploader from '../../components/common/VideoUploader/VideoUploader';
-import { useVideoUpload } from '../../hooks/useVideoUpload';
+import { fileFingerprint, readUpload, resumeVideoUpload, saveUpload } from '../../services/resumableVideo';
 
 export default function UploadVideo() {
   const { user } = useAuth();
@@ -23,7 +23,29 @@ export default function UploadVideo() {
   const [videoFile, setVideoFile] = useState(null);        // set by <VideoUploader>
 
   // ── Upload flow ──────────────────────────────────────────────────────────────
-  const { uploadVideo, uploading: videoUploading, progress: videoProgress } = useVideoUpload();
+  const [videoUploading, setVideoUploading] = useState(false);
+  const [videoProgress, setVideoProgress] = useState(0);
+  const checkpointRef = useRef(null);
+  const selectionRef = useRef(null);
+  const key = `streamwise-upload:${user?._id || user?.id}`;
+  const selectFile = async (file) => {
+    selectionRef.current = file;
+    setVideoFile(file);
+    if (!file) return;
+    try {
+      const fingerprint = await fileFingerprint(file);
+      if (selectionRef.current !== file) return;
+      const saved = checkpointRef.current || readUpload(key);
+      if (saved?.fingerprint === fingerprint && saved.fields) {
+        setTitle(saved.fields.title);
+        setDescription(saved.fields.description);
+        setVisibility(saved.fields.visibility);
+        setCategory(saved.fields.category);
+        setThumbnailUrl(saved.fields.thumbnailUrl);
+        setStatusText('Upload checkpoint found. Submit to resume.');
+      }
+    } catch {}
+  };
   const [statusText, setStatusText] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -33,8 +55,7 @@ export default function UploadVideo() {
   // ─── Derived readiness ────────────────────────────────────────────────────
   const canSubmit =
     !uploading &&
-    videoFile &&
-    thumbnailUrl &&
+    videoFile?.size > 0 &&
     title.trim() &&
     description.trim();
 
@@ -42,7 +63,7 @@ export default function UploadVideo() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!canSubmit) {
-      setError('Please fill in all required fields, upload a thumbnail, and select a video file.');
+      setError('Please fill in all required fields and select a video file.');
       return;
     }
 
@@ -50,31 +71,33 @@ export default function UploadVideo() {
     setError('');
 
     try {
-      // Step 1: Create draft — thumbnail is already a Cloudinary URL
-      setStatusText('Creating video draft…');
-      const draftVideo = await videoService.createDraft({
-        title,
-        description,
-        visibility,
-        category,
-        thumbnailUrl,
-      });
-      const videoId = draftVideo._id || draftVideo.id;
-
-      // Step 2: Upload video to Cloudinary (useVideoUpload tracks its own progress)
-      setStatusText('Uploading video…');
-      const { videoUrl, hlsUrl, publicId, duration } = await uploadVideo(videoFile, videoId);
-
-      // Step 3: Finalize — mark the video as ready in the backend
-      setStatusText('Finalizing…');
-      await videoService.finalizeVideo(videoId, { videoUrl, hlsUrl, publicId, duration });
-
-      setStatusText('Upload complete! 🎉');
-      setTimeout(() => navigate('/channel'), 1500);
+      const fingerprint = await fileFingerprint(videoFile);
+      let checkpoint = checkpointRef.current || readUpload(key);
+      if (checkpoint?.fingerprint !== fingerprint) {
+        setStatusText('Creating video draft.');
+        const fields = { title, description, visibility, category, thumbnailUrl };
+        const draft = await videoService.createDraft(fields);
+        checkpoint = { fingerprint, videoId: draft._id || draft.id, fields, offset: 0 };
+      }
+      const save = (value) => {
+        checkpointRef.current = value;
+        saveUpload(key, value);
+      };
+      save(checkpoint);
+      setStatusText('Uploading video.');
+      setVideoUploading(true);
+      setVideoProgress(Math.round((checkpoint.offset || 0) / videoFile.size * 100));
+      const publicId = await resumeVideoUpload(videoFile, checkpoint, save, setVideoProgress);
+      setVideoUploading(false);
+      setStatusText('Queuing video processing.');
+      await videoService.finalizeVideo(checkpoint.videoId, { publicId });
+      save(null);
+      navigate('/studio');
     } catch (err) {
       console.error(err);
       setError(err.message || 'An error occurred during upload.');
     } finally {
+      setVideoUploading(false);
       setSubmitting(false);
     }
   };
@@ -113,7 +136,7 @@ export default function UploadVideo() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
                   d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              <span>{error}</span>
+              <span role="alert">{error} Retry with the same file to continue.</span>
             </div>
           )}
 
@@ -196,7 +219,7 @@ export default function UploadVideo() {
               <div className="bg-[#151923] rounded-2xl p-6 border border-white/5 shadow-lg">
                 <h2 className="text-xl font-bold mb-1">Thumbnail</h2>
                 <p className="text-sm text-gray-500 mb-4">
-                  Uploaded directly to Cloudinary from your browser the moment you pick a file.
+                  Optional. Streamwise generates a thumbnail after playback is ready when you leave this blank.
                 </p>
 
                 <ImageUploader
@@ -227,12 +250,12 @@ export default function UploadVideo() {
               <div className="bg-[#151923] rounded-2xl p-6 border border-white/5 shadow-lg">
                 <h2 className="text-xl font-bold mb-1">Video File</h2>
                 <p className="text-sm text-gray-500 mb-4">
-                  Uploaded directly to Cloudinary when you click "Upload Video".
+                  Uploads begin when you submit the video.
                 </p>
 
                 <VideoUploader
                   onFileSelected={(f) => {
-                    setVideoFile(f);
+                    void selectFile(f);
                     if (f && !title) {
                       setTitle(f.name.replace(/\.[^/.]+$/, ''));
                     }
@@ -263,7 +286,7 @@ export default function UploadVideo() {
                       disabled={!canSubmit}
                       className="w-full py-3 bg-gradient-to-r from-violet-500 to-cyan-500 hover:from-violet-600 hover:to-cyan-600 text-white font-bold rounded-xl shadow-[0_0_15px_rgba(6,182,212,0.3)] transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      Upload Video
+                      {checkpointRef.current || error ? "Retry or resume" : "Submit video"}
                     </button>
 
                     {/* Checklist to guide user */}
@@ -271,7 +294,6 @@ export default function UploadVideo() {
                       {[
                         { done: !!title.trim(), label: 'Title added' },
                         { done: !!description.trim(), label: 'Description added' },
-                        { done: !!thumbnailUrl, label: 'Thumbnail uploaded' },
                         { done: !!videoFile, label: 'Video file selected' },
                       ].map(({ done, label }) => (
                         <li key={label} className="flex items-center gap-2 text-xs">
@@ -304,7 +326,7 @@ export default function UploadVideo() {
                         style={{ width: videoUploading ? `${videoProgress}%` : '100%' }}
                       />
                     </div>
-                    <p className="text-xs text-gray-500 text-center">Please do not close this page.</p>
+                    <p className="text-xs text-gray-500 text-center">You can reselect this file later to resume an interrupted upload.</p>
                   </div>
                 )}
               </div>

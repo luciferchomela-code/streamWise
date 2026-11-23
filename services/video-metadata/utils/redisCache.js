@@ -18,7 +18,7 @@ const warnCacheFailure = (operation, error) => {
   }
 };
 
-const getRedisClient = async () => {
+export const getRedisClient = async () => {
   if (!isRedisEnabled()) return null;
   if (Date.now() < retryConnectionAfter) return null;
 
