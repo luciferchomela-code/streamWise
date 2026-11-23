@@ -1,5 +1,6 @@
 """Exact, training-free ranking for a small catalog of normalized content vectors."""
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from math import expm1, sqrt
 
 import numpy as np
@@ -15,15 +16,28 @@ class Pick:
 def age_days(now, timestamp):
     if timestamp is None:
         return 365.0
+    if isinstance(timestamp, str):
+        try:
+            timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        except Exception:
+            return 365.0
+    if getattr(timestamp, "tzinfo", None) is None:
+        if getattr(now, "tzinfo", None) is not None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+    elif getattr(now, "tzinfo", None) is None:
+        now = now.replace(tzinfo=timezone.utc)
     return max(0.0, (now - timestamp).total_seconds() / 86400)
 
 
 def rank(videos, history, encode, now, limit):
-    by_id = {v["_id"]: i for i, v in enumerate(videos)}
+    by_id = {str(v["_id"]): i for i, v in enumerate(videos)}
     blocked = set()
     seeds, dislikes = [], []
     for event in history:
-        i = by_id.get(event["videoId"])
+        vid = event.get("videoId")
+        if vid is None:
+            continue
+        i = by_id.get(str(vid))
         if i is None:
             continue
         if event.get("disliked"):

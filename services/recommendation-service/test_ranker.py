@@ -61,3 +61,25 @@ class FeedTests(unittest.TestCase):
         old = self.now - timedelta(days=365)
         ids = self.feed([self.event(8, reactionAt=old, updatedAt=self.now, liked=True)])
         self.assertEqual(ids[-1], 9)
+
+    def test_empty_catalog(self):
+        picks = rank([], [], lambda _: np.zeros((0, 4)), self.now, 10)
+        self.assertEqual(picks, [])
+
+    def test_naive_and_string_timestamps(self):
+        naive_dt = datetime.now()
+        iso_str = "2026-01-01T00:00:00Z"
+        videos = [
+            {"_id": "v1", "views": 10, "createdAt": naive_dt},
+            {"_id": "v2", "views": 20, "createdAt": iso_str},
+        ]
+        history = [{"videoId": "v1", "liked": True, "reactionAt": iso_str}]
+        picks = rank(videos, history, lambda _: np.eye(2), self.now, 10)
+        self.assertNotIn(0, [p.index for p in picks])
+
+    def test_mixed_id_types_match(self):
+        videos = [{"_id": "100", "views": 5, "createdAt": self.now}, {"_id": 200, "views": 10, "createdAt": self.now}]
+        history = [{"videoId": 100, "disliked": True}]
+        picks = rank(videos, history, lambda _: np.eye(2), self.now, 10)
+        self.assertEqual(len(picks), 1)
+        self.assertEqual(picks[0].index, 1)
