@@ -1,15 +1,22 @@
 services:
   mongo:
     image: mongo:7
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
     restart: unless-stopped
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"
     environment:
       MONGO_INITDB_DATABASE: youtube_clone
     volumes:
       - mongo_data:/data/db
     healthcheck:
-      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand(\"ping\").ok' | grep 1"]
+      test:
+        - CMD-SHELL
+        - >-
+          mongosh --quiet --eval 'try { rs.status(); } catch (error) {
+          if (error.code !== 94) throw error;
+          rs.initiate({_id:"rs0",members:[{_id:0,host:"mongo:27017"}]}); }
+          quit(db.hello().isWritablePrimary ? 0 : 1);'
       interval: 5s
       timeout: 5s
       retries: 12
@@ -19,7 +26,7 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis_data:/data
@@ -33,11 +40,11 @@ services:
     image: rabbitmq:3-management
     restart: unless-stopped
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
     environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-streamwise}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-streamwise-local}
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
@@ -57,6 +64,7 @@ services:
       - "127.0.0.1:5001:5001"
     environment:
       PORT: 5001
+      MONGO_URL: ${MONGO_URL:-mongodb://mongo:27017/streamwise?replicaSet=rs0}
       MONGO_DB_NAME: streamwise
     depends_on:
       mongo:
@@ -77,18 +85,17 @@ services:
       - "127.0.0.1:5004:5002"
     environment:
       PORT: 5002
+      MONGO_URL: ${MONGO_URL:-mongodb://mongo:27017/streamwise?replicaSet=rs0}
       MONGO_DB_NAME: streamwise
       REDIS_URL: redis://redis:6379
       USE_REDIS: "true"
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      RABBITMQ_URL: ${COMPOSE_RABBITMQ_URL:-amqp://streamwise:streamwise-local@rabbitmq:5672}
       RABBITMQ_EXCHANGE: youtube.events
       UPLOAD_SERVICE_URL: http://upload:5003
     depends_on:
       mongo:
         condition: service_healthy
       redis:
-        condition: service_healthy
-      rabbitmq:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://localhost:5002/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""]
@@ -153,7 +160,7 @@ services:
       - "8000:8000"
     environment:
       PORT: 8000
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      RABBITMQ_URL: ${COMPOSE_RABBITMQ_URL:-amqp://streamwise:streamwise-local@rabbitmq:5672}
       RABBITMQ_EXCHANGE: youtube.events
     depends_on:
       rabbitmq:
@@ -172,7 +179,7 @@ services:
     ports:
       - "5173:5173"
     environment:
-      VITE_API_URL: http://localhost:5000/api
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:5000/api}
     depends_on:
       api-gateway:
         condition: service_healthy

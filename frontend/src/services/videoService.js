@@ -73,6 +73,7 @@ export const normalizeVideo = (v) => {
     description: v.description || '',
     status: v.status,
     visibility: v.visibility,
+    storyboard: v.storyboard || [],
   };
 };
 

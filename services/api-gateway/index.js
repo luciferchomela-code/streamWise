@@ -1,3 +1,7 @@
+import { isAuth } from "./src/middleware/isAuth.js";
+import { optionalAuth } from "./src/middleware/optionalAuth.js";
+import { createProxy } from "./src/utils/createProxy.js";
+import { attachCommunity } from "./src/utils/communitySocket.js";
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -15,6 +19,8 @@ import uploadRoutes from "./src/routes/upload.services.js";
 import streamRoutes from "./src/routes/stream.services.js";
 import { parseCookies } from "./src/middleware/parseCookies.js";
 import { csrfProtection } from "./src/middleware/csrfProtection.js";
+import { isAllowedBrowserOrigin } from "./src/utils/browserOrigins.js";
+import { trackGatewayRequests } from "./src/utils/requestMetrics.js";
 
 dotenv.config();
 
@@ -28,6 +34,8 @@ if (process.env.NODE_ENV === "production") {
 }
 
 const app = express();
+const trustedProxies = (process.env.TRUSTED_PROXY_ADDRESSES || "").split(",").map((value) => value.trim()).filter(Boolean);
+if (trustedProxies.length) app.set("trust proxy", trustedProxies);
 const PORT = process.env.PORT || 5000;
 
 app.use(parseCookies);
@@ -48,7 +56,7 @@ app.use(helmet());
 app.use(
   cors({
     origin: function(origin, callback) {
-      if (!origin || /^https?:\/\/(localhost|127\.0\.0\.1)(:[0-9]+)?$/.test(origin)) {
+      if (!origin || isAllowedBrowserOrigin(origin)) {
         callback(null, true);
       } else {
         callback(new Error('Not allowed by CORS'));
@@ -76,7 +84,6 @@ app.use(
   })
 );
 
-// Correlation ID & Header Sanitization
 app.use((req, res, next) => {
   const requestId = randomUUID();
   req.requestId = requestId;
@@ -88,9 +95,12 @@ app.use((req, res, next) => {
   delete req.headers["x-user-email"];
   delete req.headers["x-gateway-signature"];
   delete req.headers["x-gateway-timestamp"];
+  delete req.headers["x-guest-viewer"];
+  delete req.headers["x-guest-viewer-signature"];
 
   next();
 });
+app.use(trackGatewayRequests(redisClient, USE_REDIS));
 
 // JSON parsing logic removed. 
 // API Gateway should not parse the body so it can be streamed directly to downstream microservices.
@@ -100,9 +110,21 @@ app.get("/health", (req, res) => {
 });
 
 // Enforce CSRF Origin / Referer validation on state-changing requests
+const featureProxy = createProxy(process.env.VIDEO_METADATA_SERVICE_URL || "http://localhost:5002", "Video metadata service");
+app.post("/api/playback-health/events", (req, res, next) => {
+  if (!isAllowedBrowserOrigin(req.get("origin"))) return res.sendStatus(403);
+  delete req.headers.cookie;
+  delete req.headers.authorization;
+  next();
+}, featureProxy);
 app.use(csrfProtection);
 
 app.use("/api/auth", authRoutes);
+app.use(["/api/community", "/api/studio", "/api/playlists", "/api/moderation"], isAuth, featureProxy);
+app.get("/api/playback-health", isAuth, featureProxy);
+app.get("/api/playback-health/sessions/:id", isAuth, featureProxy);
+app.use("/api/captions", (req, res, next) =>
+  (["GET", "HEAD"].includes(req.method) ? optionalAuth : isAuth)(req, res, next), featureProxy);
 app.use("/api/videos", videoRoutes);
 app.use("/api/channels", channelRoutes);
 app.use("/api/interactions", interactionRoutes);
@@ -124,6 +146,8 @@ app.use((error, req, res, next) => {
 const server = app.listen(PORT, () => {
   console.log(`API Gateway running on port ${PORT}`);
 });
+
+attachCommunity(server, redisClient, app);
 
 const handleShutdown = async (signal) => {
   console.log(`Received ${signal}. Closing server...`);

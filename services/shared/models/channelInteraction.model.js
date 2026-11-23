@@ -28,6 +28,8 @@ const channelInteractionSchema = new mongoose.Schema({
 channelInteractionSchema.index({ userId: 1, channelId: 1 }, { unique: true });
 channelInteractionSchema.index({ userId: 1, subscribed: 1 });
 
+channelInteractionSchema.index({ channelId: 1, subscribed: 1 });
+
 const ChannelInteraction = mongoose.model("ChannelInteraction", channelInteractionSchema);
 
 export default ChannelInteraction;

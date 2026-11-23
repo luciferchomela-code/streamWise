@@ -9,7 +9,7 @@ const SIGNED_URL_TTL_SECONDS = 60 * 60;
 const VIDEO_METADATA_INTERNAL_URL =
   process.env.VIDEO_METADATA_INTERNAL_URL || "http://localhost:5002";
 
-const buildSignedUrl = (publicId) => {
+const buildSignedUrl = (publicId, profile) => {
   ensureCloudinaryConfig();
 
   const expiresAt = Math.floor(Date.now() / 1000) + SIGNED_URL_TTL_SECONDS;
@@ -17,7 +17,7 @@ const buildSignedUrl = (publicId) => {
   return cloudinary.url(publicId, {
     resource_type: "video",
     type: "upload",
-    streaming_profile: "auto",
+    streaming_profile: profile,
     format: "m3u8",
     secure: true,
     sign_url: true,
@@ -51,17 +51,19 @@ export const streamVideo = async (req, res, next) => {
     const userId = req.auth?.userId || null;
     const video = await fetchVideoDoc(videoId, userId);
 
-    if (!video.videoUrl || video.status !== "ready") {
+    if (!video.videoUrl || !["ready", "published"].includes(video.status)) {
       return res.status(404).json({ message: "Video is not available yet." });
     }
 
-    if (!video.publicId) {
+    if (!video.publicId && !(video.visibility === "public" && video.hlsUrl)) {
       return res.status(500).json({ message: "Video publicId missing — cannot generate stream URL." });
     }
 
     let streamUrl;
 
-    if (video.visibility === "public") {
+    if (video.visibility === "public" && video.hlsUrl) {
+      streamUrl = video.hlsUrl;
+    } else if (video.visibility === "public") {
       // Generate the HLS Adaptive Bitrate URL natively via Cloudinary SDK
       ensureCloudinaryConfig();
       streamUrl = cloudinary.url(video.publicId, {
@@ -71,7 +73,9 @@ export const streamVideo = async (req, res, next) => {
         secure: true
       });
     } else {
-      streamUrl = buildSignedUrl(video.publicId);
+      const profile = video.publishing?.adaptive && video.publishing.adaptive.state !== "ready"
+        ? "auto:maxres_480p" : "auto";
+      streamUrl = buildSignedUrl(video.publicId, profile);
     }
 
     incrementViewCount(videoId, userId);
